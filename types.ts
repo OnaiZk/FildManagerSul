@@ -90,7 +90,9 @@ export interface Team {
 export interface Vehicle {
   id: string;
   tag?: string;
+  brand: string;
   model: string;
+  type: string;
   plate: string;
   companyId: string;
   currentKm: number;

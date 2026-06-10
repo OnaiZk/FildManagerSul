@@ -893,7 +893,9 @@ export const getVehicles = async (companyId: string): Promise<Vehicle[]> => {
     return data.map(v => ({
         id: v.id,
         tag: v.tag,
+        brand: v.brand,
         model: v.model,
+        type: v.type,
         plate: v.plate,
         companyId: v.company_id,
         currentKm: v.current_km,
@@ -907,7 +909,9 @@ export const getVehicles = async (companyId: string): Promise<Vehicle[]> => {
 export const createVehicle = async (vehicle: Omit<Vehicle, 'id' | 'createdAt'>): Promise<void> => {
     const { error } = await supabase.from('vehicles').insert({
         tag: vehicle.tag,
+        brand: vehicle.brand,
         model: vehicle.model,
+        type: vehicle.type,
         plate: vehicle.plate.toUpperCase(),
         company_id: vehicle.companyId,
         current_km: vehicle.currentKm,
@@ -921,7 +925,9 @@ export const createVehicle = async (vehicle: Omit<Vehicle, 'id' | 'createdAt'>):
 export const updateVehicle = async (id: string, updates: Partial<Vehicle>): Promise<void> => {
     const dbUpdates: any = {};
     if (updates.tag !== undefined) dbUpdates.tag = updates.tag;
+    if (updates.brand) dbUpdates.brand = updates.brand;
     if (updates.model) dbUpdates.model = updates.model;
+    if (updates.type) dbUpdates.type = updates.type;
     if (updates.plate) dbUpdates.plate = updates.plate.toUpperCase();
     if (updates.currentKm !== undefined) dbUpdates.current_km = updates.currentKm;
     if (updates.lastMaintenanceKm !== undefined) dbUpdates.last_maintenance_km = updates.lastMaintenanceKm;
@@ -946,7 +952,9 @@ export const bulkUpsertVehicles = async (vehicles: any[]): Promise<void> => {
     const { error } = await supabase.from('vehicles').upsert(
         vehicles.map(v => ({
             tag: v.tag,
+            brand: v.brand,
             model: v.model,
+            type: v.type,
             plate: v.plate.toUpperCase(),
             company_id: v.companyId,
             current_km: v.currentKm,

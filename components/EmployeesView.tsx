@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Employee, UserRole, Absence } from '../types';
-import { getEmployees, bulkCreateEmployees, deleteEmployeeInvite, createAbsence, getAbsences, bulkDeleteInvites, uploadAbsenceEvidence } from '../api/fieldManagerApi';
-import { Users, Upload, Search, Download, Trash2, Mail, CheckCircle2, Clock, AlertCircle, CalendarOff, Plus, ChevronUp, ChevronDown, Filter, Eye, FileText } from 'lucide-react';
+import { getEmployees, bulkCreateEmployees, deleteEmployeeInvite, createAbsence, getAbsences, bulkDeleteInvites, uploadAbsenceEvidence, deleteAbsence } from '../api/fieldManagerApi';
+import { Users, Upload, Search, Download, Trash2, Mail, CheckCircle2, Clock, AlertCircle, CalendarOff, Plus, ChevronUp, ChevronDown, Filter, Eye, FileText, RotateCcw } from 'lucide-react';
 import readXlsxFile from 'read-excel-file';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
 
@@ -180,6 +180,25 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
             const end = a.endDate || a.date;
             return today >= start && today <= end;
         });
+    };
+
+    const handleRemoveAbsence = async (employee: Employee) => {
+        const activeAbsence = getEmployeeActiveAbsence(employee);
+        if (!activeAbsence) return;
+
+        if (!confirm(`Tem certeza que deseja remover a ausência/falta de ${employee.name}?`)) return;
+
+        setLoading(true);
+        try {
+            await deleteAbsence(activeAbsence.id);
+            alert('Ausência removida com sucesso!');
+            loadAbsences();
+        } catch (err) {
+            console.error('Error removing absence:', err);
+            alert('Erro ao remover ausência.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const loadEmployees = async () => {
@@ -739,13 +758,30 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                         </td>
                                         <td className="p-4 text-right">
                                             <div className="flex items-center justify-end gap-2">
-                                                <button
-                                                    onClick={() => handleOpenAbsenceModal(employee)}
-                                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                    title="Registrar Ausência"
-                                                >
-                                                    <CalendarOff size={16} />
-                                                </button>
+                                                {(() => {
+                                                    const activeAbsence = getEmployeeActiveAbsence(employee);
+                                                    return (
+                                                        <>
+                                                            {!activeAbsence ? (
+                                                                <button
+                                                                    onClick={() => handleOpenAbsenceModal(employee)}
+                                                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                    title="Registrar Ausência"
+                                                                >
+                                                                    <CalendarOff size={16} />
+                                                                </button>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleRemoveAbsence(employee)}
+                                                                    className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all"
+                                                                    title="Remover Ausência"
+                                                                >
+                                                                    <RotateCcw size={16} />
+                                                                </button>
+                                                            )}
+                                                        </>
+                                                    );
+                                                })()}
                                                 {employee.status === 'PENDING' && (
                                                     <button
                                                         onClick={() => handleDeleteInvite(employee.id)}

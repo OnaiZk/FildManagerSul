@@ -75,7 +75,9 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
 
     // New Vehicle Form State
     const [vehTag, setVehTag] = useState('');
+    const [vehBrand, setVehBrand] = useState('');
     const [vehModel, setVehModel] = useState('');
+    const [vehType, setVehType] = useState('Utilitário');
     const [vehPlate, setVehPlate] = useState('');
     const [vehKm, setVehKm] = useState<number | ''>('');
     const [vehLastMaint, setVehLastMaint] = useState<number | ''>('');
@@ -164,13 +166,15 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
 
     const handleCreateVehicle = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!vehModel || !vehPlate || vehKm === '') return;
+        if (!vehBrand || !vehModel || !vehPlate || !vehType || vehKm === '') return;
 
         setSubmitting(true);
         try {
             await createVehicle({
                 tag: vehTag,
+                brand: vehBrand,
                 model: vehModel,
+                type: vehType,
                 plate: vehPlate.toUpperCase(),
                 companyId: currentUser.companyId,
                 currentKm: Number(vehKm),
@@ -179,13 +183,16 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
             });
             setIsVehicleModalOpen(false);
             setVehTag('');
+            setVehBrand('');
             setVehModel('');
+            setVehType('Utilitário');
             setVehPlate('');
             setVehKm('');
             setVehLastMaint('');
             loadAllData();
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error creating vehicle:', err);
+            alert(`Erro ao cadastrar veículo: ${err?.message || err?.code || JSON.stringify(err)}`);
         } finally {
             setSubmitting(false);
         }
@@ -532,7 +539,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                                         <Car size={24} />
                                                     </div>
                                                     <div>
-                                                        <p className="text-sm font-black text-slate-900 tracking-tight uppercase">{v.model}</p>
+                                                        <p className="text-sm font-black text-slate-900 tracking-tight uppercase">{v.brand} {v.model}</p>
                                                         <p className="text-[10px] font-bold text-slate-400 tracking-wider font-mono uppercase">{v.plate}</p>
                                                     </div>
                                                 </div>
@@ -875,25 +882,14 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                         </div>
 
                         <form onSubmit={handleCreateVehicle} className="p-10 space-y-5 overflow-y-auto">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Tag (Nº do Carro)</label>
-                                <input
-                                    type="text"
-                                    placeholder="Ex: 2420"
-                                    value={vehTag}
-                                    onChange={(e) => setVehTag(e.target.value)}
-                                    className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase"
-                                />
-                            </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Modelo</label>
+                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Tag (Nº do Carro)</label>
                                     <input
                                         type="text"
-                                        required
-                                        placeholder="Ex: Fiat Mobi"
-                                        value={vehModel}
-                                        onChange={(e) => setVehModel(e.target.value)}
+                                        placeholder="Ex: 2420"
+                                        value={vehTag}
+                                        onChange={(e) => setVehTag(e.target.value)}
                                         className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase"
                                     />
                                 </div>
@@ -906,6 +902,45 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                         value={vehPlate}
                                         onChange={(e) => setVehPlate(e.target.value)}
                                         className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase font-mono"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Tipo</label>
+                                    <select
+                                        value={vehType}
+                                        onChange={(e) => setVehType(e.target.value)}
+                                        className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase appearance-none"
+                                    >
+                                        <option value="Utilitário">Utilitário</option>
+                                        <option value="Passeio">Passeio</option>
+                                        <option value="Van">Van</option>
+                                        <option value="Moto">Moto</option>
+                                        <option value="Caminhão">Caminhão</option>
+                                        <option value="Outro">Outro</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Marca</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="Ex: Fiat"
+                                        value={vehBrand}
+                                        onChange={(e) => setVehBrand(e.target.value)}
+                                        className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Modelo</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="Ex: Mobi"
+                                        value={vehModel}
+                                        onChange={(e) => setVehModel(e.target.value)}
+                                        className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase"
                                     />
                                 </div>
                             </div>

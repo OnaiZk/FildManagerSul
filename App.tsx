@@ -432,22 +432,13 @@ const App: React.FC = () => {
           </div>
 
           <nav className="flex-1 px-6 space-y-2">
-            <SidebarLink icon={<LayoutGrid size={20} />} label="Dashboard" active={activeTab === 'dashboard'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('dashboard')} />
-
-            {/* Technicians cannot see "Equipes" or "Mapa Operativo" */}
             {!isTechnician && (
               <>
-                <SidebarLink icon={<MapIcon size={20} />} label="Mapa Operativo" active={activeTab === 'mapa'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('mapa')} />
-                <SidebarLink icon={<ClipboardList size={20} />} label="Gestão de OS" active={activeTab === 'os'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('os')} />
                 <SidebarLink icon={<ListTodo size={20} />} label="Relatório Diário" active={activeTab === 'daily_report'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('daily_report')} />
-                <SidebarLink icon={<FileSpreadsheet size={20} />} label="Relatórios" active={activeTab === 'reports'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('reports')} />
-                <SidebarLink icon={<Calculator size={20} />} label="Medição" active={activeTab === 'medicao'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('medicao')} />
-
                 <SidebarLink icon={<Users size={20} />} label="Funcionários" active={activeTab === 'funcionarios'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('funcionarios')} />
                 <SidebarLink icon={<Users size={20} />} label="Equipes" active={activeTab === 'equipes'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('equipes')} />
                 <SidebarLink icon={<Smartphone size={20} />} label="Gestão de OPEC" active={activeTab === 'opec'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('opec')} />
                 <SidebarLink icon={<Car size={20} />} label="Controle de Frota" active={activeTab === 'veiculos'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('veiculos')} />
-                <SidebarLink icon={<Activity size={20} />} label="Monitoramento" active={activeTab === 'monitoramento'} collapsed={isSidebarCollapsed} onClick={() => setActiveTab('monitoramento')} />
               </>
             )}
           </nav>
@@ -532,26 +523,13 @@ const App: React.FC = () => {
           </div>
 
           <nav className="flex-1 px-6 py-8 space-y-2 overflow-y-auto">
-            <SidebarLink
-              icon={<LayoutGrid size={20} />}
-              label="Dashboard"
-              active={activeTab === 'dashboard'}
-              onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
-            />
-
             {!isTechnician && (
               <>
-                <SidebarLink icon={<MapIcon size={20} />} label="Mapa Operativo" active={activeTab === 'mapa'} onClick={() => { setActiveTab('mapa'); setIsMobileMenuOpen(false); }} />
-                <SidebarLink icon={<ClipboardList size={20} />} label="Gestão de OS" active={activeTab === 'os'} onClick={() => { setActiveTab('os'); setIsMobileMenuOpen(false); }} />
                 <SidebarLink icon={<ListTodo size={20} />} label="Relatório Diário" active={activeTab === 'daily_report'} onClick={() => { setActiveTab('daily_report'); setIsMobileMenuOpen(false); }} />
-                <SidebarLink icon={<FileSpreadsheet size={20} />} label="Relatórios" active={activeTab === 'reports'} onClick={() => { setActiveTab('reports'); setIsMobileMenuOpen(false); }} />
-                <SidebarLink icon={<Calculator size={20} />} label="Medição" active={activeTab === 'medicao'} onClick={() => { setActiveTab('medicao'); setIsMobileMenuOpen(false); }} />
-
                 <SidebarLink icon={<Users size={20} />} label="Funcionários" active={activeTab === 'funcionarios'} onClick={() => { setActiveTab('funcionarios'); setIsMobileMenuOpen(false); }} />
                 <SidebarLink icon={<Users size={20} />} label="Equipes" active={activeTab === 'equipes'} onClick={() => { setActiveTab('equipes'); setIsMobileMenuOpen(false); }} />
                 <SidebarLink icon={<Smartphone size={20} />} label="Gestão de OPEC" active={activeTab === 'opec'} onClick={() => { setActiveTab('opec'); setIsMobileMenuOpen(false); }} />
                 <SidebarLink icon={<Car size={20} />} label="Controle de Frota" active={activeTab === 'veiculos'} onClick={() => { setActiveTab('veiculos'); setIsMobileMenuOpen(false); }} />
-                <SidebarLink icon={<Activity size={20} />} label="Monitoramento" active={activeTab === 'monitoramento'} onClick={() => { setActiveTab('monitoramento'); setIsMobileMenuOpen(false); }} />
               </>
             )}
           </nav>
