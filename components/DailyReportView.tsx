@@ -196,7 +196,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         }
 
         const activityToDelete = selectedActivities[index];
-        
+
         if (window.confirm(`Tem certeza que deseja excluir a atividade "${activityToDelete.activityType}"?`)) {
             // Se a atividade já tem ID, ela está no banco de dados e precisa ser excluída lá também
             if (activityToDelete.id) {
@@ -208,7 +208,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                     return; // Não remove do estado se falhou no banco
                 }
             }
-            
+
             // Remove do estado local
             setSelectedActivities(prev => prev.filter((_, i) => i !== index));
         }
@@ -753,7 +753,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                         <Plus size={14} />
                         {selectedTechnicianIds.length > 0 && !selectedTeam
                             ? `${selectedTechnicianIds.length} Técnicos`
-                            : 'Personalizar'}
+                            : 'Equipe'}
                     </button>
 
                     <div className="h-6 w-px bg-slate-200 mx-2 hidden md:block"></div>
