@@ -245,7 +245,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
 
     const handleExportAbsences = async () => {
         const filteredAbsences = absences.filter(a => {
-            const date = new Date(a.date);
+            const date = new Date(a.date + 'T12:00:00');
             return (date.getMonth() + 1) === reportMonth && date.getFullYear() === reportYear;
         });
 
@@ -273,8 +273,8 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
         filteredAbsences.forEach(a => {
             const employee = employees.find(e => e.id === a.employeeId);
             const dateStr = a.endDate && a.endDate !== a.date
-                ? `${new Date(a.date).toLocaleDateString('pt-BR')} - ${new Date(a.endDate).toLocaleDateString('pt-BR')}`
-                : new Date(a.date).toLocaleDateString('pt-BR');
+                ? `${new Date(a.date + 'T12:00:00').toLocaleDateString('pt-BR')} - ${new Date(a.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}`
+                : new Date(a.date + 'T12:00:00').toLocaleDateString('pt-BR');
 
             worksheet.addRow([
                 dateStr,
