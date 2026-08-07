@@ -4,7 +4,7 @@ import { User, DailyReport, DailyActivity, Team, UserRole, Absence, Vehicle, Ope
 import { ACTIVITY_TYPES } from '../api/activityTypes';
 import { getTeams, getAllUsers, getDailyReportByTeamAndDate, upsertDailyReport, createAbsence, getAbsences, deleteAbsence, getVehicles, getOpecDevices, getDailyReports, getDailyReportsForMonth, subscribeToDailyActivities, deleteDailyActivity, updateDailyActivityQuantity } from '../api/fieldManagerApi';
 import { supabase } from '../api/supabaseClient';
-import { ClipboardList, Users, Calendar, Plus, Save, History, X, AlertCircle, Download, Trash2, Car, Smartphone, Search, CheckCircle, Edit2 } from 'lucide-react';
+import { ClipboardList, Users, Calendar, Plus, Save, History, X, AlertCircle, Download, Trash2, Car, Smartphone, Search, CheckCircle, Edit2, Sun, Moon } from 'lucide-react';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
 
 interface Props {
@@ -37,6 +37,24 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     const [isExportingMonth, setIsExportingMonth] = useState(false);
     const [isEditingReport, setIsEditingReport] = useState(false);
     const isEditingRef = useRef(false);
+
+    const defaultShift = useMemo(() => {
+        const now = new Date();
+        const dayOfWeek = now.getDay(); // 0 = Sun, 1 = Mon, ..., 5 = Fri, 6 = Sat
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+        const timeInMins = hours * 60 + minutes;
+
+        // Diurno: Mon-Thu 07:30 (450m) to 17:30 (1050m), Fri 07:30 to 16:30 (990m)
+        const isFriday = dayOfWeek === 5;
+        const diurnoStart = 7 * 60 + 30;
+        const diurnoEnd = isFriday ? (16 * 60 + 30) : (17 * 60 + 30);
+
+        if (timeInMins >= diurnoStart && timeInMins <= diurnoEnd + 60) {
+            return 'Diurno';
+        }
+        return 'Noturno';
+    }, []);
 
     const isToday = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
@@ -132,6 +150,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                     date,
                     teamId: selectedTeam || undefined,
                     technicianIds: selectedTeam ? undefined : selectedTechnicianIds,
+                    shift: defaultShift,
                     userId: currentUser.id,
                     companyId: currentUser.companyId,
                     activities: []
@@ -289,6 +308,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 userId: currentUser.id,
                 teamId: selectedTeam || undefined,
                 technicianIds: selectedTeam ? undefined : (selectedTechnicianIds.length > 0 ? selectedTechnicianIds : undefined),
+                shift: report?.shift || defaultShift,
                 companyId: currentUser.companyId,
                 activities: selectedActivities,
                 carPlate: report?.carPlate,
@@ -397,7 +417,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
         // --- SHEET 1: ATIVIDADES ---
         // Header row - REGRA 3: Inclui coluna Líder Responsável
-        const activitiesHeader = ['Data', 'Veículo', 'OPEC', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Líder Responsável', 'Observações'];
+        const activitiesHeader = ['Data', 'Turno', 'Veículo', 'OPEC', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Líder Responsável', 'Observações'];
         // Use maxTechs calculated from all reports
         for (let i = 0; i < Math.max(maxTechs, 1); i++) {
             activitiesHeader.push(`Técnico ${i + 1}`);
@@ -421,6 +441,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 // REGRA 3: Inclui liderName no Excel
                 const rowData: (string | number)[] = [
                     date,
+                    r.shift || 'Diurno',
                     activityCarInfo ? `${activityCarInfo.model} (${activityCarInfo.plate})` : '',
                     activityOpecInfo ? `${activityOpecInfo.assetCode}` : '',
                     r.route || '',
@@ -558,7 +579,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             );
 
             // --- SHEET 1: ATIVIDADES ---
-            const activitiesHeader = ['Data', 'Veículo', 'OPEC', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Líder Responsável', 'Observações'];
+            const activitiesHeader = ['Data', 'Turno', 'Veículo', 'OPEC', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Líder Responsável', 'Observações'];
             for (let i = 0; i < Math.max(maxTechs, 1); i++) {
                 activitiesHeader.push(`Técnico ${i + 1}`);
             }
@@ -580,6 +601,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
                     const rowData: (string | number)[] = [
                         r.date,
+                        r.shift || 'Diurno',
                         activityCarInfo ? `${activityCarInfo.model} (${activityCarInfo.plate})` : '',
                         activityOpecInfo ? `${activityOpecInfo.assetCode}` : '',
                         r.route || '',
@@ -729,6 +751,34 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                             max={new Date().toISOString().split('T')[0]}
                             className="bg-transparent border-none font-black text-slate-700 outline-none p-1 text-sm"
                         />
+                    </div>
+
+                    {/* Seletor de Turno */}
+                    <div className="flex items-center bg-slate-50 p-1 rounded-2xl border border-slate-100">
+                        <button
+                            type="button"
+                            onClick={() => setReport(prev => prev ? { ...prev, shift: 'Diurno' } : { shift: 'Diurno' })}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-black text-xs transition-all ${
+                                (report?.shift || defaultShift) === 'Diurno'
+                                    ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
+                                    : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            <Sun size={15} />
+                            Diurno
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setReport(prev => prev ? { ...prev, shift: 'Noturno' } : { shift: 'Noturno' })}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-black text-xs transition-all ${
+                                report?.shift === 'Noturno'
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                                    : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            <Moon size={15} />
+                            Noturno
+                        </button>
                     </div>
 
                     <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
@@ -948,6 +998,14 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                                     <div className="flex items-center justify-between p-3 bg-slate-100/50 border-b border-slate-100">
                                                         <div className="flex items-center gap-2">
                                                             <span className="text-[10px] font-black px-2 py-0.5 bg-slate-200 text-slate-500 rounded-full uppercase">{sourceName}</span>
+                                                            <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1 ${
+                                                                otherReport.shift === 'Noturno'
+                                                                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                                                                    : 'bg-amber-100 text-amber-700 border border-amber-200'
+                                                            }`}>
+                                                                {otherReport.shift === 'Noturno' ? <Moon size={11} /> : <Sun size={11} />}
+                                                                {otherReport.shift || 'Diurno'}
+                                                            </span>
                                                             {otherReport.route && (
                                                                 <span className="text-[9px] font-bold text-slate-400 uppercase">Rota: {otherReport.route}</span>
                                                             )}

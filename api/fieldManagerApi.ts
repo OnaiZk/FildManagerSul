@@ -1175,6 +1175,7 @@ export const getDailyReports = async (companyId: string, teamId?: string, date?:
         carPlate: r.car_plate,
         opecId: r.opec_id,
         route: r.route,
+        shift: r.shift || 'Diurno',
         notes: r.notes,
         companyId: r.company_id,
         activities: r.daily_activities.map((a: any) => ({
@@ -1226,6 +1227,7 @@ export const getDailyReportsForMonth = async (companyId: string, year: number, m
         carPlate: r.car_plate,
         opecId: r.opec_id,
         route: r.route,
+        shift: r.shift || 'Diurno',
         notes: r.notes,
         companyId: r.company_id,
         activities: (r.daily_activities || []).map((a: any) => ({
@@ -1286,6 +1288,7 @@ export const getDailyReportByTeamAndDate = async (
         carPlate: data.car_plate,
         opecId: data.opec_id,
         route: data.route,
+        shift: data.shift || 'Diurno',
         notes: data.notes,
         companyId: data.company_id,
         activities: data.daily_activities.map((a: any) => ({
@@ -1312,6 +1315,7 @@ export const upsertDailyReport = async (report: Omit<DailyReport, 'id'>, id?: st
         car_plate: report.carPlate,
         opec_id: report.opecId,
         route: report.route,
+        shift: report.shift || 'Diurno',
         notes: report.notes,
         company_id: report.companyId
     };

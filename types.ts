@@ -253,6 +253,7 @@ export interface DailyReport {
   userId: string;
   teamId?: string;
   technicianIds?: string[]; // IDs of the "main" team/group for the day (optional now)
+  shift?: 'Diurno' | 'Noturno' | string;
   carPlate?: string;
   opecId?: string;
   route?: string;
