@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "security:check": "node scripts/security-check.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

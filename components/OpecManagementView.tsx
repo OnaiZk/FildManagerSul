@@ -261,9 +261,9 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
 
     const renderHeader = () => (
         <div className="flex flex-col gap-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="ooh-card p-6 md:p-7 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Gestão de OPEC</h2>
+                    <h2 className="text-2xl font-bold font-display text-[#141518] tracking-tight">Gestão de OPEC</h2>
                     <p className="text-slate-500 text-sm font-medium">Controle e Inventário de Celulares</p>
                 </div>
 
@@ -289,7 +289,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                     )}
                     <button
                         onClick={() => activeSubTab === 'assignments' ? handleOpenAssignmentModal() : handleOpenDeviceModal()}
-                        className="flex items-center justify-center gap-2 bg-primary text-white px-6 py-3 rounded-2xl font-black uppercase tracking-wider text-xs transition-all shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95"
+                        className="flex items-center justify-center gap-2 bg-primary text-white px-6 py-3 rounded-2xl font-black uppercase tracking-wider text-xs transition-all shadow-sm hover:scale-[1.02] active:scale-95"
                     >
                         <Plus size={18} />
                         <span>{activeSubTab === 'assignments' ? 'Nova Atribuição' : 'Novo Dispositivo'}</span>
@@ -325,14 +325,14 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
     );
 
     const renderAssignmentsTable = () => (
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-            <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex items-center gap-4">
+        <div className="ooh-card overflow-hidden">
+            <div className="p-4 border-b border-slate-50 bg-[#FAFbfc] flex items-center gap-4">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input
                         type="text"
                         placeholder="Buscar por OPEC ou Colaborador..."
-                        className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-medium text-slate-600"
+                        className="w-full pl-10 pr-4 py-2 bg-white border border-[#E6E8EC] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-medium text-slate-600"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -345,14 +345,14 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
             <div className="overflow-x-auto">
                 <table className="w-full text-left">
                     <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50/50">
+                        <tr className="border-b border-[#E6E8EC] bg-[#FAFbfc]">
                             <th className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400">OPEC</th>
                             <th className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Colaborador</th>
                             <th className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Data de Atribuição</th>
                             <th className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Ações</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
+                    <tbody className="divide-y divide-[#EEF0F3]">
                         {loading ? (
                             <tr><td colSpan={4} className="p-12 text-center"><Loader2 className="w-8 h-8 text-primary animate-spin mx-auto" /></td></tr>
                         ) : filteredItems.length === 0 ? (
@@ -406,14 +406,14 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
     );
 
     const renderInventoryTable = () => (
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-            <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex items-center gap-4">
+        <div className="ooh-card overflow-hidden">
+            <div className="p-4 border-b border-slate-50 bg-[#FAFbfc] flex items-center gap-4">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input
                         type="text"
                         placeholder="Buscar por Ativo, Linha, Marca ou Modelo..."
-                        className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-medium text-slate-600"
+                        className="w-full pl-10 pr-4 py-2 bg-white border border-[#E6E8EC] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-medium text-slate-600"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -426,7 +426,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
             <div className="overflow-x-auto">
                 <table className="w-full text-left">
                     <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50/50">
+                        <tr className="border-b border-[#E6E8EC] bg-[#FAFbfc]">
                             <th className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Ativo</th>
                             <th className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Cpf/Linha</th>
                             <th className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Marca/Modelo</th>
@@ -435,7 +435,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                             <th className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Ações</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
+                    <tbody className="divide-y divide-[#EEF0F3]">
                         {loading ? (
                             <tr><td colSpan={6} className="p-12 text-center"><Loader2 className="w-8 h-8 text-primary animate-spin mx-auto" /></td></tr>
                         ) : filteredDevices.length === 0 ? (
@@ -465,12 +465,12 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                                         <div className="flex flex-col gap-0.5">
                                             <div className="flex items-center gap-1.5">
                                                 <Fingerprint size={10} className="text-slate-300" />
-                                                <span className="text-[9px] font-mono text-slate-500">{device.imei1 || '---'}</span>
+                                                <span className="text-[9px] font-mono-code tabular-nums text-slate-500">{device.imei1 || '---'}</span>
                                             </div>
                                             {device.imei2 && (
                                                 <div className="flex items-center gap-1.5">
                                                     <Fingerprint size={10} className="text-slate-300" />
-                                                    <span className="text-[9px] font-mono text-slate-500">{device.imei2}</span>
+                                                    <span className="text-[9px] font-mono-code tabular-nums text-slate-500">{device.imei2}</span>
                                                 </div>
                                             )}
                                         </div>
@@ -517,7 +517,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                         <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Identificação do OPEC (Ativo)</label>
                         <select
                             required
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
+                            className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
                             value={opecName}
                             onChange={e => setOpecName(e.target.value)}
                         >
@@ -532,7 +532,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                         <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Colaborador Responsável</label>
                         <select
                             required
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
+                            className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
                             value={employeeId}
                             onChange={e => setEmployeeId(e.target.value)}
                         >
@@ -550,14 +550,14 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                         <input
                             type="date"
                             required
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
+                            className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm focus:ring-2 focus:ring-primary/20 outline-none"
                             value={assignmentDate}
                             onChange={e => setAssignmentDate(e.target.value)}
                         />
                     </div>
 
                     <div className="pt-4">
-                        <button type="submit" disabled={submitting} className="w-full py-4 bg-primary text-white font-black rounded-xl hover:bg-primary-600 transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 disabled:opacity-50">
+                        <button type="submit" disabled={submitting} className="w-full py-4 bg-primary text-white font-black rounded-xl hover:bg-primary-600 transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-50">
                             {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 size={20} />}
                             <span>{editingItem ? 'Atualizar Registro' : 'Salvar Atribuição'}</span>
                         </button>
@@ -577,7 +577,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                             <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Ativo Eletromidia</label>
                             <input
                                 type="text" required
-                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none"
+                                className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm outline-none"
                                 value={deviceForm.assetCode}
                                 onChange={e => setDeviceForm({ ...deviceForm, assetCode: e.target.value })}
                                 placeholder="Ex: OPEC-M-045"
@@ -587,7 +587,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                             <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Nº da Linha</label>
                             <input
                                 type="text"
-                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none"
+                                className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm outline-none"
                                 value={deviceForm.phoneNumber}
                                 onChange={e => setDeviceForm({ ...deviceForm, phoneNumber: e.target.value })}
                                 placeholder="(11) 9XXXX-XXXX"
@@ -599,7 +599,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                         <div>
                             <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Marca</label>
                             <select
-                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none"
+                                className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm outline-none"
                                 value={deviceForm.brand}
                                 onChange={e => setDeviceForm({ ...deviceForm, brand: e.target.value })}
                             >
@@ -614,7 +614,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                             <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Modelo</label>
                             <input
                                 type="text"
-                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none"
+                                className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm outline-none"
                                 value={deviceForm.model}
                                 onChange={e => setDeviceForm({ ...deviceForm, model: e.target.value })}
                                 placeholder="Ex: GALAXY A23"
@@ -627,7 +627,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                             <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Nº de Série</label>
                             <input
                                 type="text"
-                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none"
+                                className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm outline-none"
                                 value={deviceForm.serialNumber}
                                 onChange={e => setDeviceForm({ ...deviceForm, serialNumber: e.target.value })}
                             />
@@ -636,7 +636,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                             <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Capacidade</label>
                             <input
                                 type="text"
-                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none"
+                                className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm outline-none"
                                 value={deviceForm.capacity}
                                 onChange={e => setDeviceForm({ ...deviceForm, capacity: e.target.value })}
                                 placeholder="128 GB"
@@ -649,7 +649,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                             <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">IMEI 1</label>
                             <input
                                 type="text"
-                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none"
+                                className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm outline-none"
                                 value={deviceForm.imei1}
                                 onChange={e => setDeviceForm({ ...deviceForm, imei1: e.target.value })}
                             />
@@ -658,7 +658,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                             <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">IMEI 2</label>
                             <input
                                 type="text"
-                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none"
+                                className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm outline-none"
                                 value={deviceForm.imei2}
                                 onChange={e => setDeviceForm({ ...deviceForm, imei2: e.target.value })}
                             />
@@ -668,7 +668,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                     <div>
                         <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Observações</label>
                         <textarea
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-sm outline-none h-20 resize-none"
+                            className="w-full px-4 py-3 bg-slate-50 border border-[#E6E8EC] rounded-xl font-bold text-slate-800 text-sm outline-none h-20 resize-none"
                             value={deviceForm.observations}
                             onChange={e => setDeviceForm({ ...deviceForm, observations: e.target.value })}
                             placeholder="Ex: modelo antigo, extraviado..."
@@ -676,7 +676,7 @@ const OpecManagementView: React.FC<Props> = ({ currentUser }) => {
                     </div>
 
                     <div className="pt-4">
-                        <button type="submit" disabled={submitting} className="w-full py-4 bg-primary text-white font-black rounded-xl hover:bg-primary-600 transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 disabled:opacity-50">
+                        <button type="submit" disabled={submitting} className="w-full py-4 bg-primary text-white font-black rounded-xl hover:bg-primary-600 transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-50">
                             {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 size={20} />}
                             <span>{editingDevice ? 'Atualizar Dispositivo' : 'Cadastrar Dispositivo'}</span>
                         </button>

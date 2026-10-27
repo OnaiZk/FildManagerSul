@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Employee, UserRole, Absence } from '../types';
-import { getEmployees, bulkCreateEmployees, deleteEmployeeInvite, createAbsence, getAbsences, bulkDeleteInvites, uploadAbsenceEvidence, deleteAbsence } from '../api/fieldManagerApi';
+import { getEmployees, bulkCreateEmployees, deleteEmployeeInvite, createAbsence, getAbsences, deleteAbsence, bulkDeleteInvites, uploadAbsenceEvidence } from '../api/fieldManagerApi';
 import { Users, Upload, Search, Download, Trash2, Mail, CheckCircle2, Clock, AlertCircle, CalendarOff, Plus, ChevronUp, ChevronDown, Filter, Eye, FileText, RotateCcw } from 'lucide-react';
 import readXlsxFile from 'read-excel-file';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
@@ -186,16 +186,16 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
         const activeAbsence = getEmployeeActiveAbsence(employee);
         if (!activeAbsence) return;
 
-        if (!confirm(`Tem certeza que deseja remover a ausência/falta de ${employee.name}?`)) return;
+        if (!confirm(`Deseja remover o status de ausência (${activeAbsence.reason}) de ${employee.name} e retorná-lo ao trabalho?`)) return;
 
         setLoading(true);
         try {
             await deleteAbsence(activeAbsence.id);
-            alert('Ausência removida com sucesso!');
-            loadAbsences();
-        } catch (err) {
+            alert(`${employee.name} retornou ao status normal de trabalho.`);
+            await loadAbsences();
+        } catch (err: any) {
             console.error('Error removing absence:', err);
-            alert('Erro ao remover ausência.');
+            alert('Erro ao remover ausência: ' + (err.message || 'Erro desconhecido'));
         } finally {
             setLoading(false);
         }
@@ -245,8 +245,8 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
 
     const handleExportAbsences = async () => {
         const filteredAbsences = absences.filter(a => {
-            const date = new Date(a.date + 'T12:00:00');
-            return (date.getMonth() + 1) === reportMonth && date.getFullYear() === reportYear;
+            const [year, month, day] = a.date.split('-');
+            return parseInt(month, 10) === reportMonth && parseInt(year, 10) === reportYear;
         });
 
         if (filteredAbsences.length === 0) {
@@ -272,9 +272,15 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
         // Data rows
         filteredAbsences.forEach(a => {
             const employee = employees.find(e => e.id === a.employeeId);
+            
+            const formatPtBr = (dStr: string) => {
+                const [y, m, d] = dStr.split('-');
+                return `${d}/${m}/${y}`;
+            };
+
             const dateStr = a.endDate && a.endDate !== a.date
-                ? `${new Date(a.date + 'T12:00:00').toLocaleDateString('pt-BR')} - ${new Date(a.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}`
-                : new Date(a.date + 'T12:00:00').toLocaleDateString('pt-BR');
+                ? `${formatPtBr(a.date)} - ${formatPtBr(a.endDate)}`
+                : formatPtBr(a.date);
 
             worksheet.addRow([
                 dateStr,
@@ -342,9 +348,9 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                     if (parts.length > 1) {
                         const first = parts[0];
                         const last = parts[parts.length - 1];
-                        email = `${first}.${last} @eletromidia.com.br`;
+                        email = `${first}.${last}@eletromidia.com.br`;
                     } else {
-                        email = `${parts[0]} @eletromidia.com.br`;
+                        email = `${parts[0]}@eletromidia.com.br`;
                     }
                 }
 
@@ -490,50 +496,50 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
     });
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="ooh-card p-6 md:p-7 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Gestão de Funcionários</h2>
-                    <p className="text-slate-500 text-sm font-medium">Visualize e gerencie sua equipe</p>
+                    <h2 className="text-2xl md:text-3xl font-bold font-display text-[#141518] tracking-tight">Gestão de Funcionários</h2>
+                    <p className="text-[#5E636E] text-sm font-medium mt-1">Visualize e gerencie o quadro técnico, escalas de turno e ausências</p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
                     <button
                         onClick={() => setIsReportModalOpen(true)}
-                        className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-4 py-2.5 rounded-xl font-bold uppercase tracking-wider text-xs transition-all shadow-sm"
+                        className="flex items-center gap-2 bg-white border border-[#E6E8EC] text-[#141518] hover:bg-[#F8F9FA] px-4 py-2.5 rounded-xl font-semibold text-xs transition-all"
                     >
-                        <FileText size={16} /> Relatórios
+                        <FileText size={15} className="text-[#5E636E]" /> Relatórios RH
                     </button>
                     <button
                         onClick={() => setIsAddEmployeeModalOpen(true)}
-                        className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2.5 rounded-xl font-bold uppercase tracking-wider text-xs transition-all shadow-md hover:shadow-lg"
+                        className="flex items-center gap-2 bg-[#141518] hover:bg-[#23252A] text-white px-4 py-2.5 rounded-xl font-semibold text-xs transition-all shadow-sm"
                     >
-                        <Plus size={16} /> Adicionar
+                        <Plus size={15} className="text-[#FF4F00]" /> Adicionar Colaborador
                     </button>
                     <button
                         onClick={() => setIsImportModalOpen(true)}
-                        className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl font-bold uppercase tracking-wider text-xs transition-all shadow-md hover:shadow-lg"
+                        className="flex items-center gap-2 bg-[#FF4F00] hover:bg-[#E04400] text-white px-4 py-2.5 rounded-xl font-semibold text-xs transition-all shadow-sm"
                     >
-                        <Upload size={16} /> Importar Excel
+                        <Upload size={15} /> Importar Excel
                     </button>
                 </div>
             </div>
 
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex items-center gap-4">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <div className="ooh-card overflow-hidden">
+                <div className="p-4 md:p-5 border-b border-[#E6E8EC] bg-[#FAFbfc] flex flex-wrap items-center gap-3">
+                    <div className="relative flex-1 min-w-[240px]">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8F96A3]" size={16} />
                         <input
                             type="text"
-                            placeholder="Buscar por nome, email ou cadastro..."
-                            className="w-full pl-10 pr-10 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-medium text-slate-600"
+                            placeholder="Buscar por nome, e-mail ou matrícula..."
+                            className="ooh-input pl-10 pr-10 py-2.5 text-sm"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                         {searchTerm && (
                             <button
                                 onClick={() => setSearchTerm('')}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500"
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8F96A3] hover:text-[#141518]"
                             >
                                 <AlertCircle size={14} className="rotate-45" />
                             </button>
@@ -542,12 +548,12 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
 
                     <button
                         onClick={() => setIsFilterBarOpen(!isFilterBarOpen)}
-                        className={`flex items - center gap - 2 px - 4 py - 2 rounded - xl text - xs font - bold uppercase tracking - wider transition - all border ${isFilterBarOpen || Object.values(filters).some(v => v !== '')
-                            ? 'bg-primary/10 border-primary/20 text-primary'
-                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                            } `}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all border ${isFilterBarOpen || Object.values(filters).some(v => v !== '')
+                            ? 'bg-[#FFF5F2] border-[#FF4F00]/30 text-[#FF4F00]'
+                            : 'bg-white border-[#E6E8EC] text-[#5E636E] hover:bg-[#F8F9FA] hover:text-[#141518]'
+                            }`}
                     >
-                        <Filter size={16} className={Object.values(filters).some(v => v !== '') ? 'animate-pulse' : ''} />
+                        <Filter size={15} className={Object.values(filters).some(v => v !== '') ? 'animate-pulse' : ''} />
                         Filtros {Object.values(filters).filter(v => v !== '').length > 0 && `(${Object.values(filters).filter(v => v !== '').length})`}
                     </button>
 
@@ -555,127 +561,127 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                         <button
                             onClick={handleBulkDelete}
                             disabled={isDeletingBulk}
-                            className="flex items-center gap-2 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all border border-red-100"
+                            className="flex items-center gap-2 bg-[#FEF2F2] text-[#DC2626] hover:bg-[#FEE2E2] px-4 py-2.5 rounded-xl text-xs font-semibold transition-all border border-[#FECACA]"
                         >
-                            <Trash2 size={16} /> Excluir ({selectedIds.length})
+                            <Trash2 size={15} /> Excluir ({selectedIds.length})
                         </button>
                     )}
 
-                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    <div className="px-3 py-1.5 rounded-full bg-[#ECEEF2] text-xs font-semibold text-[#5E636E] font-mono-code">
                         Total: {filteredEmployees.length}
                     </div>
                 </div>
 
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
+                    <table className="w-full text-left border-collapse">
                         <thead>
-                            <tr className="border-b border-slate-100 bg-slate-50/50">
+                            <tr className="border-b border-[#E6E8EC] bg-[#FAFbfc]">
                                 <th className="p-4 w-10">
                                     <input
                                         type="checkbox"
-                                        className="rounded border-slate-300 text-primary focus:ring-primary"
+                                        className="rounded border-[#D0D5DD] text-[#FF4F00] focus:ring-[#FF4F00]"
                                         onChange={handleSelectAll}
                                         checked={selectedIds.length > 0 && selectedIds.length === filteredEmployees.filter(e => e.status === 'PENDING').length}
                                     />
                                 </th>
                                 {[
                                     { key: 'shift', label: 'Turno' },
-                                    { key: 'code', label: 'Cadastro' },
+                                    { key: 'code', label: 'Matrícula' },
                                     { key: 'leaderName', label: 'Líder' },
-                                    { key: 'name', label: 'Nome' },
+                                    { key: 'name', label: 'Colaborador' },
                                     { key: 'role', label: 'Cargo' },
-                                    { key: 'originalStatus', label: 'Original Status' }
+                                    { key: 'originalStatus', label: 'Status' }
                                 ].map(col => (
                                     <th
                                         key={col.key}
-                                        className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400 cursor-pointer hover:text-primary transition-colors group"
+                                        className="p-4 text-[11px] font-semibold uppercase tracking-wider text-[#5E636E] cursor-pointer hover:text-[#141518] transition-colors group"
                                         onClick={() => requestSort(col.key)}
                                     >
                                         <div className="flex items-center gap-1">
                                             {col.label}
-                                            <div className={`transition - opacity ${sortConfig?.key === col.key ? 'opacity-100 text-primary' : 'opacity-0 group-hover:opacity-40'} `}>
+                                            <div className={`transition-opacity ${sortConfig?.key === col.key ? 'opacity-100 text-[#FF4F00]' : 'opacity-0 group-hover:opacity-40'}`}>
                                                 {sortConfig?.key === col.key && sortConfig.direction === 'desc' ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
                                             </div>
                                         </div>
                                     </th>
                                 ))}
-                                <th className="p-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Ações</th>
+                                <th className="p-4 text-[11px] font-semibold uppercase tracking-wider text-[#5E636E] text-right">Ações</th>
                             </tr>
 
                             {isFilterBarOpen && (
-                                <tr className="bg-slate-50/30 border-b border-slate-50 animate-in slide-in-from-top-2">
-                                    <td className="p-2"></td>
-                                    <td className="p-2">
+                                <tr className="bg-[#F8F9FA] border-b border-[#E6E8EC] animate-in slide-in-from-top-2">
+                                    <td className="p-2.5"></td>
+                                    <td className="p-2.5">
                                         <select
                                             value={filters.shift}
                                             onChange={(e) => setFilters(prev => ({ ...prev, shift: e.target.value }))}
-                                            className="w-full p-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 focus:ring-1 focus:ring-primary"
+                                            className="w-full p-1.5 bg-white border border-[#E6E8EC] rounded-lg text-xs font-medium text-[#141518] focus:ring-1 focus:ring-[#FF4F00]"
                                         >
-                                            <option value="">TODOS</option>
+                                            <option value="">Todos</option>
                                             {Array.from(new Set(employees.map(e => e.shift).filter(Boolean))).map(s => <option key={s} value={s!}>{s}</option>)}
                                         </select>
                                     </td>
-                                    <td className="p-2"></td>
-                                    <td className="p-2">
+                                    <td className="p-2.5"></td>
+                                    <td className="p-2.5">
                                         <select
                                             value={filters.leaderName}
                                             onChange={(e) => setFilters(prev => ({ ...prev, leaderName: e.target.value }))}
-                                            className="w-full p-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 focus:ring-1 focus:ring-primary"
+                                            className="w-full p-1.5 bg-white border border-[#E6E8EC] rounded-lg text-xs font-medium text-[#141518] focus:ring-1 focus:ring-[#FF4F00]"
                                         >
-                                            <option value="">TODOS</option>
+                                            <option value="">Todos</option>
                                             {Array.from(new Set(employees.map(e => e.leaderName).filter(Boolean))).map(l => <option key={l} value={l!}>{l}</option>)}
                                         </select>
                                     </td>
-                                    <td className="p-2"></td>
-                                    <td className="p-2">
+                                    <td className="p-2.5"></td>
+                                    <td className="p-2.5">
                                         <select
                                             value={filters.role}
                                             onChange={(e) => setFilters(prev => ({ ...prev, role: e.target.value }))}
-                                            className="w-full p-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 focus:ring-1 focus:ring-primary"
+                                            className="w-full p-1.5 bg-white border border-[#E6E8EC] rounded-lg text-xs font-medium text-[#141518] focus:ring-1 focus:ring-[#FF4F00]"
                                         >
-                                            <option value="">TODOS</option>
+                                            <option value="">Todos</option>
                                             {Array.from(new Set(employees.map(e => e.role))).sort().map(r => (
                                                 <option key={r} value={r}>{(r as string).replace('PARCEIRO_', '').replace('_', ' ')}</option>
                                             ))}
                                         </select>
                                     </td>
-                                    <td className="p-2">
+                                    <td className="p-2.5">
                                         <select
                                             value={filters.originalStatus}
                                             onChange={(e) => setFilters(prev => ({ ...prev, originalStatus: e.target.value }))}
-                                            className="w-full p-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 focus:ring-1 focus:ring-primary"
+                                            className="w-full p-1.5 bg-white border border-[#E6E8EC] rounded-lg text-xs font-medium text-[#141518] focus:ring-1 focus:ring-[#FF4F00]"
                                         >
-                                            <option value="">TODOS</option>
+                                            <option value="">Todos</option>
                                             {Array.from(new Set(employees.map(e => e.originalStatus).filter(Boolean))).map(s => <option key={s} value={s!}>{s}</option>)}
                                         </select>
                                     </td>
-                                    <td className="p-2 text-right">
+                                    <td className="p-2.5 text-right">
                                         <button
                                             onClick={() => {
                                                 setFilters({ role: '', originalStatus: '', shift: '', leaderName: '' });
                                                 setSortConfig(null);
                                             }}
-                                            className="text-[9px] font-black text-slate-400 hover:text-red-500 uppercase tracking-tighter"
+                                            className="text-xs font-semibold text-[#5E636E] hover:text-[#DC2626] px-2 py-1"
                                         >
-                                            Reset
+                                            Limpar
                                         </button>
                                     </td>
                                 </tr>
                             )}
                         </thead>
-                        <tbody className="divide-y divide-slate-50">
+                        <tbody className="divide-y divide-[#EEF0F3]">
                             {loading ? (
-                                <tr><td colSpan={8} className="p-8 text-center text-slate-400 text-sm">Carregando...</td></tr>
+                                <tr><td colSpan={8} className="p-10 text-center text-[#8F96A3] text-sm">Carregando quadro de funcionários...</td></tr>
                             ) : filteredEmployees.length === 0 ? (
-                                <tr><td colSpan={8} className="p-8 text-center text-slate-400 text-sm">Nenhum funcionário encontrado</td></tr>
+                                <tr><td colSpan={8} className="p-10 text-center text-[#8F96A3] text-sm">Nenhum funcionário encontrado</td></tr>
                             ) : (
                                 filteredEmployees.map(employee => (
-                                    <tr key={employee.id} className={`group hover: bg - slate - 50 transition - colors ${selectedIds.includes(employee.id) ? 'bg-primary/5' : ''} `}>
+                                    <tr key={employee.id} className={`group hover:bg-[#F8F9FA] transition-colors ${selectedIds.includes(employee.id) ? 'bg-[#FFF5F2]' : ''}`}>
                                         <td className="p-4">
                                             {employee.status === 'PENDING' ? (
                                                 <input
                                                     type="checkbox"
-                                                    className="rounded border-slate-300 text-primary focus:ring-primary"
+                                                    className="rounded border-[#D0D5DD] text-[#FF4F00] focus:ring-[#FF4F00]"
                                                     checked={selectedIds.includes(employee.id)}
                                                     onChange={() => handleSelectEmployee(employee.id)}
                                                 />
@@ -683,109 +689,108 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                                 <div className="w-4" />
                                             )}
                                         </td>
-                                        <td className="p-4 text-xs font-medium text-slate-500">{employee.shift || '-'}</td>
-                                        <td className="p-4 text-xs font-mono text-slate-500">{employee.code || '-'}</td>
-                                        <td className="p-4 text-xs font-medium text-slate-500">{employee.leaderName || '-'}</td>
+                                        <td className="p-4 text-xs font-medium text-[#5E636E]">{employee.shift || '-'}</td>
+                                        <td className="p-4 text-xs font-mono-code font-medium text-[#141518]">{employee.code || '-'}</td>
+                                        <td className="p-4 text-xs font-medium text-[#5E636E]">{employee.leaderName || '-'}</td>
                                         <td className="p-4">
                                             <div className="flex items-center gap-3">
                                                 <div className="relative">
-                                                    <img src={employee.avatar} alt={employee.name} className="w-8 h-8 rounded-full bg-slate-200 object-cover border border-white shadow-sm" />
+                                                    <img src={employee.avatar} alt={employee.name} className="w-9 h-9 rounded-full bg-[#ECEEF2] object-cover border border-[#E6E8EC]" />
                                                     {(() => {
                                                         const activeAbsence = getEmployeeActiveAbsence(employee);
                                                         if (activeAbsence) {
                                                             const colorClass = activeAbsence.reason === 'Férias' ? 'bg-blue-500' : activeAbsence.reason === 'Afastamento' ? 'bg-orange-500' : 'bg-red-500';
-                                                            return <div className={`absolute -bottom-1 -right-1 w-3 h-3 ${colorClass} border-2 border-white rounded-full`} title={activeAbsence.reason} />;
+                                                            return <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 ${colorClass} border-2 border-white rounded-full`} title={activeAbsence.reason} />;
                                                         }
                                                         if (employee.status === 'ACTIVE') {
-                                                            return <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 border-2 border-white rounded-full" title="Ativo" />;
+                                                            return <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" title="Ativo" />;
                                                         }
-                                                        return <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-amber-500 border-2 border-white rounded-full animate-pulse" title="Convite Pendente" />;
+                                                        return <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-amber-500 border-2 border-white rounded-full animate-pulse" title="Convite Pendente" />;
                                                     })()}
                                                 </div>
                                                 <div>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-bold text-slate-700 text-sm block">{employee.name}</span>
+                                                        <span className="font-semibold text-[#141518] text-sm block">{employee.name}</span>
                                                         {(() => {
                                                             const a = getEmployeeActiveAbsence(employee);
                                                             if (!a) return null;
                                                             return (
                                                                 <div key={a.id} className="flex items-center gap-1">
-                                                                    <span className="bg-red-100 text-red-700 rounded-full text-[8px] font-black px-1.5 py-0.5 uppercase tracking-tighter">
+                                                                    <span className="bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] rounded-full text-[10px] font-semibold px-2 py-0.5">
                                                                         {a.reason === 'Férias' ? 'Em Férias' : a.reason === 'Afastamento' ? 'Afastado' : 'Ausente'}
                                                                     </span>
                                                                     {a.evidenceUrl && (
                                                                         <button
                                                                             onClick={() => setSelectedEvidenceUrl(a.evidenceUrl!)}
-                                                                            className="p-0.5 text-red-400 hover:text-red-600 transition-colors"
+                                                                            className="p-0.5 text-[#DC2626] hover:text-[#991B1B] transition-colors"
                                                                             title="Ver comprovante"
                                                                         >
-                                                                            <Eye size={12} />
+                                                                            <Eye size={13} />
                                                                         </button>
                                                                     )}
                                                                 </div>
                                                             );
                                                         })()}
                                                     </div>
-                                                    <span className="text-[10px] text-slate-400 block">{employee.email}</span>
+                                                    <span className="text-xs text-[#8F96A3] block">{employee.email}</span>
                                                 </div>
                                             </div>
                                         </td>
                                         <td className="p-4">
-                                            <span className="text-xs font-bold text-slate-500 px-2 py-1 bg-slate-100 rounded-md uppercase tracking-wider">
+                                            <span className="text-[11px] font-semibold text-[#141518] px-2.5 py-1 bg-[#F4F5F7] border border-[#E6E8EC] rounded-lg">
                                                 {employee.role.replace('PARCEIRO_', '').replace('_', ' ')}
                                             </span>
                                         </td>
-                                        <td className="p-4 text-xs font-medium text-slate-500">
+                                        <td className="p-4 text-xs font-medium text-[#5E636E]">
                                             {(() => {
                                                 const activeAbsence = getEmployeeActiveAbsence(employee);
                                                 if (activeAbsence) {
-                                                    const colorClass = activeAbsence.reason === 'Férias' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600';
+                                                    const colorClass = activeAbsence.reason === 'Férias' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]';
                                                     return (
-                                                        <span className={`px-2 py-1 rounded-md uppercase text-[10px] font-bold tracking-wider ${colorClass}`}>
+                                                        <span className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold ${colorClass}`}>
                                                             {activeAbsence.reason}
                                                         </span>
                                                     );
                                                 }
                                                 if (employee.originalStatus) {
                                                     return (
-                                                        <span className={`px-2 py-1 rounded-md uppercase text-[10px] font-bold tracking-wider ${employee.originalStatus.includes('afastado') ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+                                                        <span className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold ${employee.originalStatus.includes('afastado') ? 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]' : 'bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]'}`}>
                                                             {employee.originalStatus}
                                                         </span>
                                                     );
                                                 }
-                                                return <span className="text-slate-300">-</span>;
+                                                return <span className="text-[#8F96A3]">-</span>;
                                             })()}
                                         </td>
                                         <td className="p-4 text-right">
-                                            <div className="flex items-center justify-end gap-2">
+                                            <div className="flex items-center justify-end gap-1.5">
                                                 {(() => {
                                                     const activeAbsence = getEmployeeActiveAbsence(employee);
+                                                    if (activeAbsence) {
+                                                        return (
+                                                            <button
+                                                                onClick={() => handleRemoveAbsence(employee)}
+                                                                className="p-2 text-[#059669] hover:text-[#047857] hover:bg-[#ECFDF5] rounded-xl transition-all"
+                                                                title={`Retornar ao trabalho (Remover ${activeAbsence.reason})`}
+                                                            >
+                                                                <RotateCcw size={16} />
+                                                            </button>
+                                                        );
+                                                    }
                                                     return (
-                                                        <>
-                                                            {!activeAbsence ? (
-                                                                <button
-                                                                    onClick={() => handleOpenAbsenceModal(employee)}
-                                                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                    title="Registrar Ausência"
-                                                                >
-                                                                    <CalendarOff size={16} />
-                                                                </button>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => handleRemoveAbsence(employee)}
-                                                                    className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all"
-                                                                    title="Remover Ausência"
-                                                                >
-                                                                    <RotateCcw size={16} />
-                                                                </button>
-                                                            )}
-                                                        </>
+                                                        <button
+                                                            onClick={() => handleOpenAbsenceModal(employee)}
+                                                            className="p-2 text-[#5E636E] hover:text-[#DC2626] hover:bg-[#FEF2F2] rounded-xl transition-all"
+                                                            title="Registrar Ausência"
+                                                        >
+                                                            <CalendarOff size={16} />
+                                                        </button>
                                                     );
                                                 })()}
                                                 {employee.status === 'PENDING' && (
                                                     <button
                                                         onClick={() => handleDeleteInvite(employee.id)}
-                                                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                        className="p-2 text-[#5E636E] hover:text-[#DC2626] hover:bg-[#FEF2F2] rounded-xl transition-all"
                                                         title="Remover convite"
                                                     >
                                                         <Trash2 size={16} />
@@ -802,19 +807,19 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
             </div>
 
             {isImportModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
-                    <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
+                <div className="fixed inset-0 bg-[#141518]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
                         <button
                             onClick={() => setIsImportModalOpen(false)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-full"
+                            className="absolute top-5 right-5 p-2 text-[#8F96A3] hover:text-[#141518] hover:bg-[#F4F5F7] rounded-xl"
                         >
-                            <AlertCircle size={20} />
+                            <AlertCircle size={18} className="rotate-45" />
                         </button>
 
-                        <h3 className="text-xl font-black text-slate-800 mb-2">Importar Funcionários</h3>
-                        <p className="text-slate-500 text-sm mb-6">Selecione um arquivo Excel contendo as colunas: <strong>Turno, Cadastro, Lider, Nome, Cargo, Status</strong>.</p>
+                        <h3 className="text-xl font-bold font-display text-[#141518] mb-1.5">Importar Funcionários</h3>
+                        <p className="text-[#5E636E] text-sm mb-6">Selecione uma planilha Excel contendo as colunas: <strong>Turno, Cadastro, Lider, Nome, Cargo, Status</strong>.</p>
 
-                        <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center gap-4 hover:border-primary/50 hover:bg-primary/5 transition-all text-center group cursor-pointer relative">
+                        <div className="border-2 border-dashed border-[#D0D5DD] rounded-2xl p-8 flex flex-col items-center justify-center gap-3 hover:border-[#FF4F00] hover:bg-[#FFF5F2]/50 transition-all text-center group cursor-pointer relative">
                             <input
                                 type="file"
                                 accept=".xlsx"
@@ -822,65 +827,71 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                 disabled={importing}
                             />
-                            <div className="w-12 h-12 bg-primary-50 text-primary rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                                <Upload size={24} />
+                            <div className="w-12 h-12 bg-[#FFF5F2] text-[#FF4F00] rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform">
+                                <Upload size={22} />
                             </div>
                             <div>
-                                <p className="font-bold text-slate-700">Clique para selecionar</p>
-                                <p className="text-xs text-slate-400">ou arraste o arquivo aqui</p>
+                                <p className="font-semibold text-[#141518] text-sm">Clique para selecionar o arquivo</p>
+                                <p className="text-xs text-[#8F96A3] mt-0.5">Formato suportado: .xlsx</p>
                             </div>
                         </div>
 
                         {importing && (
                             <div className="mt-6 flex flex-col items-center gap-2 text-center animate-in fade-in">
-                                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                                <p className="text-xs font-bold text-primary uppercase tracking-widest">Processando...</p>
+                                <div className="w-7 h-7 border-3 border-[#FF4F00] border-t-transparent rounded-full animate-spin"></div>
+                                <p className="text-xs font-semibold text-[#FF4F00]">Processando planilha...</p>
                             </div>
                         )}
 
                         {errorMessage && (
-                            <div className="mt-6 p-4 bg-red-50 text-red-600 rounded-xl text-sm font-medium flex items-center gap-2 animate-in slide-in-from-bottom-2">
+                            <div className="mt-5 p-3.5 bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] rounded-xl text-xs font-semibold flex items-center gap-2">
                                 <AlertCircle size={16} /> {errorMessage}
                             </div>
                         )}
 
                         {importStats && (
-                            <div className="mt-6 p-4 bg-green-50 text-green-700 rounded-xl text-sm font-bold flex items-center gap-2 animate-in slide-in-from-bottom-2">
-                                <CheckCircle2 size={20} />
-                                <span>Sucesso! {importStats.success} funcionários importados via convite.</span>
+                            <div className="mt-5 p-3.5 bg-[#ECFDF5] border border-[#A7F3D0] text-[#059669] rounded-xl text-xs font-semibold flex items-center gap-2">
+                                <CheckCircle2 size={18} />
+                                <span>Sucesso! {importStats.success} funcionários importados.</span>
                             </div>
                         )}
 
-                        <div className="mt-6 flex justify-end">
+                        <div className="mt-6 pt-4 border-t border-[#E6E8EC] flex justify-between items-center">
                             <button
                                 onClick={handleDownloadTemplate}
-                                className="text-primary text-xs font-black uppercase tracking-widest hover:underline mr-auto"
+                                className="text-[#FF4F00] text-xs font-semibold hover:underline"
                             >
-                                Baixar Modelo
+                                Baixar Planilha Modelo
+                            </button>
+                            <button
+                                onClick={() => setIsImportModalOpen(false)}
+                                className="px-4 py-2 rounded-xl bg-[#F4F5F7] text-xs font-semibold text-[#5E636E] hover:text-[#141518]"
+                            >
+                                Fechar
                             </button>
                         </div>
                     </div>
                 </div>
             )}
             {isAbsenceModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
-                    <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
+                <div className="fixed inset-0 bg-[#141518]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
                         <button
                             onClick={() => setIsAbsenceModalOpen(false)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-full"
+                            className="absolute top-5 right-5 p-2 text-[#8F96A3] hover:text-[#141518] hover:bg-[#F4F5F7] rounded-xl"
                         >
-                            <AlertCircle size={20} />
+                            <AlertCircle size={18} className="rotate-45" />
                         </button>
 
-                        <h3 className="text-xl font-black text-slate-800 mb-2">Registrar Ausência</h3>
-                        <p className="text-slate-500 text-sm mb-6">Colaborador: <strong>{selectedEmployeeForAbsence?.name}</strong></p>
+                        <h3 className="text-xl font-bold font-display text-[#141518] mb-1">Registrar Ausência</h3>
+                        <p className="text-[#5E636E] text-sm mb-6">Colaborador: <strong className="text-[#141518]">{selectedEmployeeForAbsence?.name}</strong></p>
 
                         <form onSubmit={handleSubmitAbsence} className="space-y-4">
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Motivo</label>
+                                <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Motivo da Ausência</label>
                                 <select
                                     required
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                    className="ooh-input py-2.5 text-sm font-medium"
                                     value={absenceForm.reason}
                                     onChange={e => setAbsenceForm({ ...absenceForm, reason: e.target.value })}
                                 >
@@ -895,26 +906,26 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                 </select>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">
                                         {(absenceForm.reason === 'Férias' || absenceForm.reason === 'Afastamento') ? 'Data Início' : 'Data'}
                                     </label>
                                     <input
                                         type="date"
                                         required
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                        className="ooh-input py-2.5 text-sm font-mono-code"
                                         value={absenceForm.date}
                                         onChange={e => setAbsenceForm({ ...absenceForm, date: e.target.value })}
                                     />
                                 </div>
                                 {(absenceForm.reason === 'Férias' || absenceForm.reason === 'Afastamento') && (
                                     <div className="animate-in slide-in-from-left-2">
-                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Data Fim</label>
+                                        <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Data Fim</label>
                                         <input
                                             type="date"
                                             required
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                            className="ooh-input py-2.5 text-sm font-mono-code"
                                             value={absenceForm.endDate}
                                             onChange={e => setAbsenceForm({ ...absenceForm, endDate: e.target.value })}
                                             min={absenceForm.date}
@@ -924,7 +935,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                             </div>
 
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Comprovante (Imagem/Doc)</label>
+                                <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Comprovante (Imagem/PDF)</label>
                                 <div className="relative">
                                     <input
                                         type="file"
@@ -932,9 +943,9 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                         onChange={handleAbsenceFileChange}
                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                                     />
-                                    <div className="w-full bg-slate-50 border border-slate-200 border-dashed rounded-xl p-4 flex items-center justify-center gap-2 text-slate-500 group-hover:bg-slate-100 transition-colors">
-                                        <Upload size={16} />
-                                        <span className="text-xs font-bold">
+                                    <div className="w-full bg-[#F8F9FA] border border-[#D0D5DD] border-dashed rounded-xl p-3.5 flex items-center justify-center gap-2 text-[#5E636E] hover:bg-[#F4F5F7] transition-colors">
+                                        <Upload size={15} />
+                                        <span className="text-xs font-semibold">
                                             {absenceForm.evidenceFile ? absenceForm.evidenceFile.name : 'Anexar conversa ou atestado'}
                                         </span>
                                     </div>
@@ -942,9 +953,9 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                             </div>
 
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Observação (Opcional)</label>
+                                <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Observação (Opcional)</label>
                                 <textarea
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-none h-24"
+                                    className="ooh-input p-3 text-sm resize-none h-24"
                                     value={absenceForm.description}
                                     onChange={e => setAbsenceForm({ ...absenceForm, description: e.target.value })}
                                     placeholder="Detalhes adicionais..."
@@ -954,7 +965,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-200 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                className="w-full bg-[#DC2626] hover:bg-[#B91C1C] text-white font-semibold py-3 rounded-xl shadow-sm transition-all active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
                             >
                                 {loading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
                                 {loading ? 'Registrando...' : 'Confirmar Ausência'}
@@ -964,16 +975,16 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                 </div>
             )}
             {selectedEvidenceUrl && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4 animate-in fade-in duration-300">
-                    <div className="bg-white rounded-3xl shadow-2xl p-4 max-w-2xl w-full relative">
+                <div className="fixed inset-0 bg-[#141518]/60 backdrop-blur-md z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="ooh-card shadow-2xl p-5 max-w-2xl w-full relative">
                         <button
                             onClick={() => setSelectedEvidenceUrl(null)}
-                            className="absolute top-2 right-2 p-2 bg-white text-slate-400 hover:text-slate-600 rounded-full shadow-md z-10"
+                            className="absolute top-3 right-3 p-2 bg-white text-[#5E636E] hover:text-[#141518] rounded-xl shadow-sm z-10"
                         >
-                            <AlertCircle size={20} />
+                            <AlertCircle size={18} className="rotate-45" />
                         </button>
 
-                        <div className="relative rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center min-h-[300px]">
+                        <div className="relative rounded-xl overflow-hidden bg-[#F4F5F7] flex items-center justify-center min-h-[300px]">
                             {selectedEvidenceUrl.toLowerCase().endsWith('.pdf') ? (
                                 <iframe src={selectedEvidenceUrl} className="w-full h-[70vh]" />
                             ) : (
@@ -981,13 +992,13 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                             )}
                         </div>
 
-                        <div className="mt-4 flex justify-between items-center px-2">
-                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Comprovante de Ausência</span>
+                        <div className="mt-4 flex justify-between items-center px-1">
+                            <span className="text-xs font-semibold text-[#5E636E]">Comprovante de Ausência</span>
                             <a
                                 href={selectedEvidenceUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-primary/90 transition-all"
+                                className="flex items-center gap-2 bg-[#141518] text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#23252A] transition-all"
                             >
                                 <Download size={14} /> Abrir Original
                             </a>
@@ -996,26 +1007,26 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                 </div>
             )}
             {isReportModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
-                    <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full relative">
+                <div className="fixed inset-0 bg-[#141518]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative">
                         <button
                             onClick={() => setIsReportModalOpen(false)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-full"
+                            className="absolute top-5 right-5 p-2 text-[#8F96A3] hover:text-[#141518] hover:bg-[#F4F5F7] rounded-xl"
                         >
-                            <AlertCircle size={20} />
+                            <AlertCircle size={18} className="rotate-45" />
                         </button>
 
-                        <h3 className="text-xl font-black text-slate-800 mb-2">Exportar Relatórios</h3>
-                        <p className="text-slate-500 text-sm mb-6">Selecione o período para gerar o relatório de ausências (RH).</p>
+                        <h3 className="text-xl font-bold font-display text-[#141518] mb-1.5">Exportar Relatórios RH</h3>
+                        <p className="text-[#5E636E] text-sm mb-6">Selecione o período para gerar a planilha consolidada de ausências.</p>
 
                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Mês</label>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Mês</label>
                                     <select
                                         value={reportMonth}
                                         onChange={(e) => setReportMonth(parseInt(e.target.value))}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                        className="ooh-input py-2.5 text-sm font-medium capitalize"
                                     >
                                         {Array.from({ length: 12 }, (_, i) => (
                                             <option key={i + 1} value={i + 1}>
@@ -1025,11 +1036,11 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Ano</label>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Ano</label>
                                     <select
                                         value={reportYear}
                                         onChange={(e) => setReportYear(parseInt(e.target.value))}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                        className="ooh-input py-2.5 text-sm font-mono-code font-medium"
                                     >
                                         {[2024, 2025, 2026].map(y => (
                                             <option key={y} value={y}>{y}</option>
@@ -1040,68 +1051,68 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
 
                             <button
                                 onClick={handleExportAbsences}
-                                className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                                className="w-full bg-[#141518] hover:bg-[#23252A] text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
                             >
-                                <Download size={20} /> Gerar Excel de Ausências
+                                <Download size={17} className="text-[#FF4F00]" /> Gerar Excel de Ausências
                             </button>
                         </div>
                     </div>
                 </div>
             )}
             {isAddEmployeeModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
-                    <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
+                <div className="fixed inset-0 bg-[#141518]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
                         <button
                             onClick={() => setIsAddEmployeeModalOpen(false)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-full"
+                            className="absolute top-5 right-5 p-2 text-[#8F96A3] hover:text-[#141518] hover:bg-[#F4F5F7] rounded-xl"
                         >
-                            <AlertCircle size={20} />
+                            <AlertCircle size={18} className="rotate-45" />
                         </button>
 
-                        <h3 className="text-xl font-black text-slate-800 mb-2">Adicionar Funcionário</h3>
-                        <p className="text-slate-500 text-sm mb-6">Preencha os dados do funcionário. Apenas o <strong>nome</strong> é obrigatório.</p>
+                        <h3 className="text-xl font-bold font-display text-[#141518] mb-1.5">Adicionar Colaborador</h3>
+                        <p className="text-[#5E636E] text-sm mb-6">Preencha os dados abaixo. Apenas o <strong>nome</strong> é obrigatório.</p>
 
                         <form onSubmit={handleAddSingleEmployee} className="space-y-4">
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
-                                    Nome <span className="text-red-500">*</span>
+                                <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">
+                                    Nome Completo <span className="text-[#DC2626]">*</span>
                                 </label>
                                 <input
                                     type="text"
                                     required
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                    className="ooh-input py-2.5 text-sm"
                                     value={addEmployeeForm.name}
                                     onChange={e => setAddEmployeeForm({ ...addEmployeeForm, name: e.target.value })}
-                                    placeholder="Nome completo do funcionário"
+                                    placeholder="Nome completo do colaborador"
                                 />
                             </div>
 
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Email (Opcional)</label>
+                                <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">E-mail (Opcional)</label>
                                 <input
                                     type="email"
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                    className="ooh-input py-2.5 text-sm"
                                     value={addEmployeeForm.email}
                                     onChange={e => setAddEmployeeForm({ ...addEmployeeForm, email: e.target.value })}
-                                    placeholder="email@empresa.com.br (gerado automaticamente se vazio)"
+                                    placeholder="Gerado automaticamente se vazio"
                                 />
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Cadastro (Opcional)</label>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Matrícula (Opcional)</label>
                                     <input
                                         type="text"
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                        className="ooh-input py-2.5 text-sm font-mono-code"
                                         value={addEmployeeForm.code}
                                         onChange={e => setAddEmployeeForm({ ...addEmployeeForm, code: e.target.value })}
-                                        placeholder="Matrícula"
+                                        placeholder="Ex: 10492"
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Turno (Opcional)</label>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Turno (Opcional)</label>
                                     <select
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                        className="ooh-input py-2.5 text-sm"
                                         value={addEmployeeForm.shift}
                                         onChange={e => setAddEmployeeForm({ ...addEmployeeForm, shift: e.target.value })}
                                     >
@@ -1112,11 +1123,11 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Cargo (Opcional)</label>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Cargo</label>
                                     <select
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                        className="ooh-input py-2.5 text-sm"
                                         value={addEmployeeForm.role}
                                         onChange={e => setAddEmployeeForm({ ...addEmployeeForm, role: e.target.value })}
                                     >
@@ -1126,10 +1137,10 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Líder (Opcional)</label>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Líder Responsável</label>
                                     <input
                                         type="text"
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                                        className="ooh-input py-2.5 text-sm"
                                         value={addEmployeeForm.leaderName}
                                         onChange={e => setAddEmployeeForm({ ...addEmployeeForm, leaderName: e.target.value })}
                                         placeholder="Nome do líder"
@@ -1140,16 +1151,16 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                             <button
                                 type="submit"
                                 disabled={addingEmployee || !addEmployeeForm.name.trim()}
-                                className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                className="w-full bg-[#FF4F00] hover:bg-[#E04400] text-white font-semibold py-3 rounded-xl shadow-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm mt-2"
                             >
                                 {addingEmployee ? (
                                     <>
-                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                                         Adicionando...
                                     </>
                                 ) : (
                                     <>
-                                        <Plus size={20} /> Adicionar Funcionário
+                                        <Plus size={18} /> Cadastrar Colaborador
                                     </>
                                 )}
                             </button>

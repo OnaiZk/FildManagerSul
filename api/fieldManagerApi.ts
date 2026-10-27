@@ -1,5 +1,5 @@
 
-import { Task, TaskStatus, EvidenceStage, UserRole, TaskEvidence, ChatMessage, User, Team, ServiceType, Asset, AssetType, Employee, Absence, VehicleLog, Vehicle, OpecItem, OpecDevice, AuditLog, DailyReport, DailyActivity, AssetMeasurement } from '../types';
+import { Task, TaskStatus, EvidenceStage, UserRole, TaskEvidence, ChatMessage, User, Team, ServiceType, Asset, AssetType, Employee, Absence, VehicleLog, Vehicle, OpecItem, OpecDevice, AuditLog, DailyReport, DailyActivity, AssetMeasurement, LeaderAgendaEntry, AgendaComment, AgendaCategory } from '../types';
 import { supabase } from './supabaseClient';
 
 // --- TASKS ---
@@ -156,10 +156,20 @@ export const bulkCreateTasks = async (tasks: any[]): Promise<void> => {
 
 // --- GET TASKS BY COMPANY ---
 export const getTasksByCompanyId = async (companyId: string): Promise<Task[]> => {
+    // Map company select ID to actual company_id used in tasks
+    const companyIdMap: Record<string, string> = {
+        'gf1': 'gf1',
+        'alvares': 'alvares',
+        'bassi': 'bassi',
+        'afn_nogueira': 'afn_nogueira'
+    };
+
+    const actualCompanyId = companyIdMap[companyId] || companyId;
+
     const { data: tasks, error } = await supabase
         .from('tasks')
         .select('*')
-        .eq('company_id', companyId)
+        .eq('company_id', actualCompanyId)
         .order('scheduled_date', { ascending: false });
 
     if (error || !tasks) return [];
@@ -209,14 +219,58 @@ export const getEvidenceByTaskId = async (taskId: string): Promise<TaskEvidence[
     }));
 };
 
+// --- UPLOAD SECURITY VALIDATION ---
+const ALLOWED_IMAGE_MIME_TYPES: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/heic': 'heic',
+    'image/heif': 'heif'
+};
+
+const ALLOWED_DOCUMENT_MIME_TYPES: Record<string, string> = {
+    ...ALLOWED_IMAGE_MIME_TYPES,
+    'application/pdf': 'pdf'
+};
+
+const sanitizePathSegment = (segment: string): string => {
+    const cleaned = String(segment || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!cleaned) {
+        throw new Error('Identificador de caminho inválido para upload.');
+    }
+    return cleaned;
+};
+
+const validateUploadFile = (
+    file: File,
+    allowedMimeTypes: Record<string, string>,
+    maxSizeBytes: number
+): string => {
+    if (!file || typeof file.size !== 'number' || file.size <= 0) {
+        throw new Error('Arquivo inválido ou vazio.');
+    }
+    if (file.size > maxSizeBytes) {
+        const maxMb = Math.round(maxSizeBytes / (1024 * 1024));
+        throw new Error(`O arquivo excede o tamanho máximo permitido de ${maxMb}MB.`);
+    }
+    const safeExt = allowedMimeTypes[(file.type || '').toLowerCase()];
+    if (!safeExt) {
+        throw new Error('Formato de arquivo não permitido. Envie apenas imagens (JPG, PNG, WEBP) ou PDF quando aplicável.');
+    }
+    return safeExt;
+};
+
 export const uploadEvidence = async (taskId: string, stage: EvidenceStage, file: File, location: { lat: number, lng: number }): Promise<TaskEvidence> => {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${taskId}/${stage}_${Date.now()}.${fileExt}`;
+    const safeExt = validateUploadFile(file, ALLOWED_IMAGE_MIME_TYPES, 10 * 1024 * 1024);
+    const safeTaskId = sanitizePathSegment(taskId);
+    const safeStage = sanitizePathSegment(stage);
+    const fileName = `${safeTaskId}/${safeStage}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${safeExt}`;
     const filePath = `evidence/${fileName}`;
 
     const { error: uploadError } = await supabase.storage
-        .from('assets') // Using 'assets' bucket for evidence too, or create 'evidence' bucket
-        .upload(filePath, file);
+        .from('assets')
+        .upload(filePath, file, { contentType: file.type, upsert: false });
 
     if (uploadError) throw uploadError;
 
@@ -592,13 +646,13 @@ export const updateUserProfile = async (userId: string, updates: Partial<User>):
 };
 
 export const uploadAvatar = async (userId: string, file: File): Promise<string> => {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}/${Date.now()}.${fileExt}`;
-    const filePath = `${fileName}`;
+    const safeExt = validateUploadFile(file, ALLOWED_IMAGE_MIME_TYPES, 5 * 1024 * 1024);
+    const safeUserId = sanitizePathSegment(userId);
+    const filePath = `${safeUserId}/${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${safeExt}`;
 
     const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, file, { contentType: file.type, upsert: true });
 
     if (uploadError) throw uploadError;
 
@@ -767,8 +821,8 @@ export const getAbsences = async (companyId: string): Promise<Absence[]> => {
         id: item.id,
         employeeId: item.employee_id,
         employeeName: item.employee_name,
-        date: item.date,
-        endDate: item.end_date,
+        date: item.date ? item.date.split('T')[0] : item.date,
+        endDate: item.end_date ? item.end_date.split('T')[0] : item.end_date,
         reason: item.reason,
         description: item.notes,
         companyId: item.company_id,
@@ -777,13 +831,12 @@ export const getAbsences = async (companyId: string): Promise<Absence[]> => {
 };
 
 export const uploadAbsenceEvidence = async (file: File): Promise<string> => {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Math.random()}.${fileExt}`;
-    const filePath = `${fileName}`;
+    const safeExt = validateUploadFile(file, ALLOWED_DOCUMENT_MIME_TYPES, 10 * 1024 * 1024);
+    const filePath = `${Date.now()}_${crypto.randomUUID()}.${safeExt}`;
 
     const { error: uploadError } = await supabase.storage
         .from('absences')
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, file, { contentType: file.type, upsert: false });
 
     if (uploadError) throw uploadError;
 
@@ -893,9 +946,9 @@ export const getVehicles = async (companyId: string): Promise<Vehicle[]> => {
     return data.map(v => ({
         id: v.id,
         tag: v.tag,
-        brand: v.brand,
+        brand: v.brand || '',
         model: v.model,
-        type: v.type,
+        type: v.type || 'Utilitário',
         plate: v.plate,
         companyId: v.company_id,
         currentKm: v.current_km,
@@ -925,9 +978,9 @@ export const createVehicle = async (vehicle: Omit<Vehicle, 'id' | 'createdAt'>):
 export const updateVehicle = async (id: string, updates: Partial<Vehicle>): Promise<void> => {
     const dbUpdates: any = {};
     if (updates.tag !== undefined) dbUpdates.tag = updates.tag;
-    if (updates.brand) dbUpdates.brand = updates.brand;
+    if (updates.brand !== undefined) dbUpdates.brand = updates.brand;
     if (updates.model) dbUpdates.model = updates.model;
-    if (updates.type) dbUpdates.type = updates.type;
+    if (updates.type !== undefined) dbUpdates.type = updates.type;
     if (updates.plate) dbUpdates.plate = updates.plate.toUpperCase();
     if (updates.currentKm !== undefined) dbUpdates.current_km = updates.currentKm;
     if (updates.lastMaintenanceKm !== undefined) dbUpdates.last_maintenance_km = updates.lastMaintenanceKm;
@@ -1172,10 +1225,12 @@ export const getDailyReports = async (companyId: string, teamId?: string, date?:
         userId: r.user_id,
         teamId: r.team_id,
         technicianIds: r.technician_ids,
+        shift: r.shift || 'Diurno',
         carPlate: r.car_plate,
         opecId: r.opec_id,
+        driverId: r.driver_id,
+        driverName: r.driver_name,
         route: r.route,
-        shift: r.shift || 'Diurno',
         notes: r.notes,
         companyId: r.company_id,
         activities: r.daily_activities.map((a: any) => ({
@@ -1224,10 +1279,12 @@ export const getDailyReportsForMonth = async (companyId: string, year: number, m
         userId: r.user_id,
         teamId: r.team_id,
         technicianIds: r.technician_ids,
+        shift: r.shift || 'Diurno',
         carPlate: r.car_plate,
         opecId: r.opec_id,
+        driverId: r.driver_id,
+        driverName: r.driver_name,
         route: r.route,
-        shift: r.shift || 'Diurno',
         notes: r.notes,
         companyId: r.company_id,
         activities: (r.daily_activities || []).map((a: any) => ({
@@ -1285,10 +1342,12 @@ export const getDailyReportByTeamAndDate = async (
         userId: data.user_id,
         teamId: data.team_id,
         technicianIds: data.technician_ids,
+        shift: data.shift || 'Diurno',
         carPlate: data.car_plate,
         opecId: data.opec_id,
+        driverId: data.driver_id,
+        driverName: data.driver_name,
         route: data.route,
-        shift: data.shift || 'Diurno',
         notes: data.notes,
         companyId: data.company_id,
         activities: data.daily_activities.map((a: any) => ({
@@ -1312,10 +1371,12 @@ export const upsertDailyReport = async (report: Omit<DailyReport, 'id'>, id?: st
         team_id: report.teamId,
         // Sort IDs before saving to ensure consistent lookup later
         technician_ids: report.technicianIds ? [...report.technicianIds].sort() : null,
+        shift: report.shift || 'Diurno',
         car_plate: report.carPlate,
         opec_id: report.opecId,
+        driver_id: report.driverId || null,
+        driver_name: report.driverName || null,
         route: report.route,
-        shift: report.shift || 'Diurno',
         notes: report.notes,
         company_id: report.companyId
     };
@@ -1393,6 +1454,13 @@ export const upsertDailyReport = async (report: Omit<DailyReport, 'id'>, id?: st
     }
 };
 
+
+export const deleteDailyReport = async (reportId: string): Promise<void> => {
+    // Delete associated activities first
+    await supabase.from('daily_activities').delete().eq('report_id', reportId);
+    const { error } = await supabase.from('daily_reports').delete().eq('id', reportId);
+    if (error) throw error;
+};
 
 export const deleteAbsence = async (id: string): Promise<void> => {
     const { error } = await supabase.from('daily_absences').delete().eq('id', id);
@@ -1626,4 +1694,527 @@ export const upsertAsset = async (asset: any): Promise<string> => {
         throw error;
     }
     return id;
+};
+
+
+// ============================================================================
+// --- AGENDA / DIÁRIO SEMANAL DOS LÍDERES (COM SUPORTE A COMENTÁRIOS) ---
+// ============================================================================
+
+const AGENDA_LOCAL_STORAGE_PREFIX = 'ooh_leader_agenda_v1_';
+const AGENDA_CHANNEL_MARKER = '__LEADER_AGENDA_CHANNEL__';
+
+let leaderAgendaTableAvailable: boolean | null = null;
+const agendaChannelIdCache: Record<string, string> = {};
+
+interface AgendaCloudMutation {
+    _agendaEvent: 'UPSERT_ENTRY' | 'DELETE_ENTRY' | 'ADD_COMMENT' | 'DELETE_COMMENT';
+    timestamp: string;
+    entry?: LeaderAgendaEntry;
+    entryId?: string;
+    comment?: AgendaComment;
+    commentId?: string;
+}
+
+const getLocalAgendaEntries = (companyId: string): LeaderAgendaEntry[] => {
+    try {
+        const raw = localStorage.getItem(`${AGENDA_LOCAL_STORAGE_PREFIX}${companyId}`);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+};
+
+const setLocalAgendaEntries = (companyId: string, entries: LeaderAgendaEntry[]): void => {
+    try {
+        localStorage.setItem(`${AGENDA_LOCAL_STORAGE_PREFIX}${companyId}`, JSON.stringify(entries));
+    } catch (e) {
+        console.warn('Could not save agenda to localStorage:', e);
+    }
+};
+
+const mapDbRowToAgendaEntry = (row: any): LeaderAgendaEntry => ({
+    id: row.id,
+    date: row.date,
+    time: row.time || undefined,
+    leaderId: row.leader_id,
+    leaderName: row.leader_name,
+    leaderRole: row.leader_role || undefined,
+    companyId: row.company_id || 'internal',
+    category: (row.category || 'GERAL') as AgendaCategory,
+    title: row.title,
+    description: row.description,
+    teamIds: Array.isArray(row.team_ids) ? row.team_ids : [],
+    teamNames: Array.isArray(row.team_names) ? row.team_names : [],
+    technicianIds: Array.isArray(row.technician_ids) ? row.technician_ids : [],
+    technicianNames: Array.isArray(row.technician_names) ? row.technician_names : [],
+    comments: Array.isArray(row.comments) ? row.comments : [],
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || row.created_at || new Date().toISOString()
+});
+
+const getOrCreateAgendaCloudChannel = async (companyId: string, createIfMissing = false): Promise<string | null> => {
+    const normalizedCompany = companyId || 'internal';
+    if (agendaChannelIdCache[normalizedCompany]) {
+        return agendaChannelIdCache[normalizedCompany];
+    }
+
+    try {
+        const { data: existing, error } = await supabase
+            .from('chat_conversations')
+            .select('id, participants')
+            .contains('participants', [AGENDA_CHANNEL_MARKER, normalizedCompany]);
+
+        if (!error && existing && existing.length > 0) {
+            agendaChannelIdCache[normalizedCompany] = existing[0].id;
+            return existing[0].id;
+        }
+
+        if (!createIfMissing) return null;
+
+        const { data: created, error: createErr } = await supabase
+            .from('chat_conversations')
+            .insert({
+                participants: [AGENDA_CHANNEL_MARKER, normalizedCompany, 'v1'],
+                updated_at: new Date().toISOString()
+            })
+            .select('id')
+            .single();
+
+        if (!createErr && created?.id) {
+            agendaChannelIdCache[normalizedCompany] = created.id;
+            return created.id;
+        }
+    } catch (e) {
+        console.warn('Agenda cloud fallback channel lookup failed:', e);
+    }
+    return null;
+};
+
+const postAgendaCloudMutation = async (companyId: string, actorId: string, mutation: AgendaCloudMutation): Promise<boolean> => {
+    try {
+        const convId = await getOrCreateAgendaCloudChannel(companyId, true);
+        if (!convId) return false;
+
+        const { error } = await supabase
+            .from('chat_messages')
+            .insert({
+                conversation_id: convId,
+                sender_id: actorId || 'system',
+                text: JSON.stringify(mutation),
+                read: true
+            });
+
+        return !error;
+    } catch {
+        return false;
+    }
+};
+
+const fetchEntriesFromCloudChannel = async (companyId: string): Promise<LeaderAgendaEntry[] | null> => {
+    try {
+        const convId = await getOrCreateAgendaCloudChannel(companyId, false);
+        if (!convId) return [];
+
+        const { data: messages, error } = await supabase
+            .from('chat_messages')
+            .select('id, text, timestamp')
+            .eq('conversation_id', convId)
+            .order('timestamp', { ascending: true });
+
+        if (error || !messages) return null;
+
+        const entriesMap = new Map<string, LeaderAgendaEntry>();
+
+        for (const msg of messages) {
+            if (!msg.text) continue;
+            try {
+                const parsed = JSON.parse(msg.text) as AgendaCloudMutation;
+                if (!parsed || !parsed._agendaEvent) continue;
+
+                if (parsed._agendaEvent === 'UPSERT_ENTRY' && parsed.entry) {
+                    const prev = entriesMap.get(parsed.entry.id);
+                    const mergedComments = parsed.entry.comments && parsed.entry.comments.length > 0
+                        ? parsed.entry.comments
+                        : (prev?.comments || []);
+                    entriesMap.set(parsed.entry.id, {
+                        ...parsed.entry,
+                        comments: mergedComments
+                    });
+                } else if (parsed._agendaEvent === 'DELETE_ENTRY' && parsed.entryId) {
+                    entriesMap.delete(parsed.entryId);
+                } else if (parsed._agendaEvent === 'ADD_COMMENT' && parsed.entryId && parsed.comment) {
+                    const existing = entriesMap.get(parsed.entryId);
+                    if (existing) {
+                        const comments = Array.isArray(existing.comments) ? [...existing.comments] : [];
+                        if (!comments.some(c => c.id === parsed.comment!.id)) {
+                            comments.push(parsed.comment);
+                        }
+                        entriesMap.set(parsed.entryId, {
+                            ...existing,
+                            comments,
+                            updatedAt: parsed.timestamp || new Date().toISOString()
+                        });
+                    }
+                } else if (parsed._agendaEvent === 'DELETE_COMMENT' && parsed.entryId && parsed.commentId) {
+                    const existing = entriesMap.get(parsed.entryId);
+                    if (existing && Array.isArray(existing.comments)) {
+                        entriesMap.set(parsed.entryId, {
+                            ...existing,
+                            comments: existing.comments.filter(c => c.id !== parsed.commentId),
+                            updatedAt: parsed.timestamp || new Date().toISOString()
+                        });
+                    }
+                }
+            } catch {
+                // Ignore malformed message
+            }
+        }
+
+        return Array.from(entriesMap.values());
+    } catch {
+        return null;
+    }
+};
+
+const isMissingTableError = (error: any): boolean => {
+    if (!error) return false;
+    const code = String(error.code || '');
+    const msg = String(error.message || '').toLowerCase();
+    return (
+        code === '42P01' ||
+        code === 'PGRST205' ||
+        msg.includes('leader_agenda') && (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('not find'))
+    );
+};
+
+export const getLeaderAgendaEntries = async (
+    companyId: string,
+    startDate?: string,
+    endDate?: string
+): Promise<LeaderAgendaEntry[]> => {
+    const normalizedCompany = companyId || 'internal';
+    let entries: LeaderAgendaEntry[] = [];
+
+    // 1. Try dedicated Supabase table first
+    if (leaderAgendaTableAvailable !== false) {
+        let query = supabase
+            .from('leader_agenda')
+            .select('*')
+            .eq('company_id', normalizedCompany)
+            .order('date', { ascending: false })
+            .order('created_at', { ascending: false });
+
+        if (startDate) query = query.gte('date', startDate);
+        if (endDate) query = query.lte('date', endDate);
+
+        const { data, error } = await query;
+
+        if (!error && data) {
+            leaderAgendaTableAvailable = true;
+            entries = data.map(mapDbRowToAgendaEntry);
+            setLocalAgendaEntries(normalizedCompany, entries);
+            return entries;
+        }
+
+        if (isMissingTableError(error)) {
+            leaderAgendaTableAvailable = false;
+        }
+    }
+
+    // 2. Fallback to Cloud Channel (shared across all leaders/chiefs via Supabase)
+    const cloudEntries = await fetchEntriesFromCloudChannel(normalizedCompany);
+    const localEntries = getLocalAgendaEntries(normalizedCompany);
+
+    const mergedMap = new Map<string, LeaderAgendaEntry>();
+    for (const item of localEntries) {
+        mergedMap.set(item.id, item);
+    }
+    if (cloudEntries) {
+        for (const item of cloudEntries) {
+            mergedMap.set(item.id, item);
+        }
+    }
+
+    entries = Array.from(mergedMap.values());
+    setLocalAgendaEntries(normalizedCompany, entries);
+
+    if (startDate) {
+        entries = entries.filter(e => e.date >= startDate);
+    }
+    if (endDate) {
+        entries = entries.filter(e => e.date <= endDate);
+    }
+
+    return entries.sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        const timeA = a.time || '00:00';
+        const timeB = b.time || '00:00';
+        if (timeA !== timeB) return timeB.localeCompare(timeA);
+        return b.createdAt.localeCompare(a.createdAt);
+    });
+};
+
+export const saveLeaderAgendaEntry = async (
+    entryInput: Omit<LeaderAgendaEntry, 'id' | 'createdAt' | 'updatedAt'> & { id?: string; createdAt?: string }
+): Promise<LeaderAgendaEntry> => {
+    const now = new Date().toISOString();
+    const companyId = entryInput.companyId || 'internal';
+    const entry: LeaderAgendaEntry = {
+        id: entryInput.id || `agenda_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        date: entryInput.date,
+        time: entryInput.time || undefined,
+        leaderId: entryInput.leaderId,
+        leaderName: entryInput.leaderName,
+        leaderRole: entryInput.leaderRole,
+        companyId,
+        category: entryInput.category,
+        title: entryInput.title.trim(),
+        description: entryInput.description.trim(),
+        teamIds: entryInput.teamIds || [],
+        teamNames: entryInput.teamNames || [],
+        technicianIds: entryInput.technicianIds || [],
+        technicianNames: entryInput.technicianNames || [],
+        comments: entryInput.comments || [],
+        createdAt: entryInput.createdAt || now,
+        updatedAt: now
+    };
+
+    // Update local cache immediately
+    const local = getLocalAgendaEntries(companyId);
+    const existingIdx = local.findIndex(e => e.id === entry.id);
+    if (existingIdx >= 0) {
+        entry.comments = entryInput.comments ?? local[existingIdx].comments ?? [];
+        entry.createdAt = local[existingIdx].createdAt || entry.createdAt;
+        local[existingIdx] = entry;
+    } else {
+        local.unshift(entry);
+    }
+    setLocalAgendaEntries(companyId, local);
+
+    // 1. Try dedicated table if available
+    if (leaderAgendaTableAvailable !== false) {
+        const dbPayload = {
+            id: entry.id,
+            date: entry.date,
+            time: entry.time || null,
+            leader_id: entry.leaderId,
+            leader_name: entry.leaderName,
+            leader_role: entry.leaderRole || null,
+            company_id: entry.companyId,
+            category: entry.category,
+            title: entry.title,
+            description: entry.description,
+            team_ids: entry.teamIds || [],
+            team_names: entry.teamNames || [],
+            technician_ids: entry.technicianIds || [],
+            technician_names: entry.technicianNames || [],
+            comments: entry.comments || [],
+            created_at: entry.createdAt,
+            updated_at: entry.updatedAt
+        };
+
+        const { data, error } = await supabase
+            .from('leader_agenda')
+            .upsert(dbPayload, { onConflict: 'id' })
+            .select('*')
+            .single();
+
+        if (!error && data) {
+            leaderAgendaTableAvailable = true;
+            return mapDbRowToAgendaEntry(data);
+        }
+
+        if (isMissingTableError(error)) {
+            leaderAgendaTableAvailable = false;
+        }
+    }
+
+    // 2. Fallback to Cloud Channel
+    await postAgendaCloudMutation(companyId, entry.leaderId, {
+        _agendaEvent: 'UPSERT_ENTRY',
+        timestamp: now,
+        entry
+    });
+
+    return entry;
+};
+
+export const deleteLeaderAgendaEntry = async (
+    entryId: string,
+    companyId: string,
+    actorId: string
+): Promise<void> => {
+    const normalizedCompany = companyId || 'internal';
+    const local = getLocalAgendaEntries(normalizedCompany).filter(e => e.id !== entryId);
+    setLocalAgendaEntries(normalizedCompany, local);
+
+    if (leaderAgendaTableAvailable !== false) {
+        const { error } = await supabase
+            .from('leader_agenda')
+            .delete()
+            .eq('id', entryId);
+
+        if (!error) {
+            leaderAgendaTableAvailable = true;
+            return;
+        }
+        if (isMissingTableError(error)) {
+            leaderAgendaTableAvailable = false;
+        }
+    }
+
+    await postAgendaCloudMutation(normalizedCompany, actorId, {
+        _agendaEvent: 'DELETE_ENTRY',
+        timestamp: new Date().toISOString(),
+        entryId
+    });
+};
+
+export const addLeaderAgendaComment = async (
+    entryId: string,
+    companyId: string,
+    commentInput: Omit<AgendaComment, 'id' | 'createdAt'>
+): Promise<AgendaComment> => {
+    const normalizedCompany = companyId || 'internal';
+    const now = new Date().toISOString();
+    const comment: AgendaComment = {
+        id: `comment_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        authorId: commentInput.authorId,
+        authorName: commentInput.authorName,
+        authorRole: commentInput.authorRole,
+        text: commentInput.text.trim(),
+        createdAt: now
+    };
+
+    // Update local cache
+    const local = getLocalAgendaEntries(normalizedCompany);
+    const targetIdx = local.findIndex(e => e.id === entryId);
+    let updatedComments: AgendaComment[] = [comment];
+    if (targetIdx >= 0) {
+        const prevComments = Array.isArray(local[targetIdx].comments) ? local[targetIdx].comments! : [];
+        updatedComments = [...prevComments, comment];
+        local[targetIdx] = {
+            ...local[targetIdx],
+            comments: updatedComments,
+            updatedAt: now
+        };
+        setLocalAgendaEntries(normalizedCompany, local);
+    }
+
+    if (leaderAgendaTableAvailable !== false) {
+        const { data: existingRow, error: fetchErr } = await supabase
+            .from('leader_agenda')
+            .select('comments')
+            .eq('id', entryId)
+            .single();
+
+        if (!fetchErr && existingRow) {
+            const dbComments = Array.isArray(existingRow.comments) ? [...existingRow.comments, comment] : updatedComments;
+            const { error: updateErr } = await supabase
+                .from('leader_agenda')
+                .update({ comments: dbComments, updated_at: now })
+                .eq('id', entryId);
+
+            if (!updateErr) {
+                leaderAgendaTableAvailable = true;
+                return comment;
+            }
+        } else if (isMissingTableError(fetchErr)) {
+            leaderAgendaTableAvailable = false;
+        }
+    }
+
+    await postAgendaCloudMutation(normalizedCompany, comment.authorId, {
+        _agendaEvent: 'ADD_COMMENT',
+        timestamp: now,
+        entryId,
+        comment
+    });
+
+    return comment;
+};
+
+export const deleteLeaderAgendaComment = async (
+    entryId: string,
+    companyId: string,
+    commentId: string,
+    actorId: string
+): Promise<void> => {
+    const normalizedCompany = companyId || 'internal';
+    const now = new Date().toISOString();
+
+    const local = getLocalAgendaEntries(normalizedCompany);
+    const targetIdx = local.findIndex(e => e.id === entryId);
+    if (targetIdx >= 0 && Array.isArray(local[targetIdx].comments)) {
+        local[targetIdx] = {
+            ...local[targetIdx],
+            comments: local[targetIdx].comments!.filter(c => c.id !== commentId),
+            updatedAt: now
+        };
+        setLocalAgendaEntries(normalizedCompany, local);
+    }
+
+    if (leaderAgendaTableAvailable !== false) {
+        const { data: existingRow, error: fetchErr } = await supabase
+            .from('leader_agenda')
+            .select('comments')
+            .eq('id', entryId)
+            .single();
+
+        if (!fetchErr && existingRow) {
+            const dbComments = Array.isArray(existingRow.comments)
+                ? existingRow.comments.filter((c: any) => c.id !== commentId)
+                : [];
+            const { error: updateErr } = await supabase
+                .from('leader_agenda')
+                .update({ comments: dbComments, updated_at: now })
+                .eq('id', entryId);
+
+            if (!updateErr) {
+                leaderAgendaTableAvailable = true;
+                return;
+            }
+        } else if (isMissingTableError(fetchErr)) {
+            leaderAgendaTableAvailable = false;
+        }
+    }
+
+    await postAgendaCloudMutation(normalizedCompany, actorId, {
+        _agendaEvent: 'DELETE_COMMENT',
+        timestamp: now,
+        entryId,
+        commentId
+    });
+};
+
+export const subscribeToLeaderAgenda = (
+    companyId: string,
+    onUpdate: () => void
+) => {
+    const normalizedCompany = companyId || 'internal';
+    const channel = supabase
+        .channel(`leader-agenda-sync-${normalizedCompany}`)
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'leader_agenda'
+        }, () => {
+            onUpdate();
+        })
+        .on('postgres_changes', {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'chat_messages'
+        }, (payload) => {
+            const msg = payload.new as any;
+            if (msg?.text && typeof msg.text === 'string' && msg.text.includes('"_agendaEvent"')) {
+                onUpdate();
+            }
+        })
+        .subscribe();
+
+    return channel;
 };

@@ -1,210 +1,117 @@
-import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
-// Theme configuration per company
 export interface CompanyTheme {
-    primary: string;
-    primaryShades: {
-        50: string;
-        100: string;
-        200: string;
-        300: string;
-        400: string;
-        500: string;
-        600: string;
-        700: string;
-        800: string;
-        900: string;
-    };
-    secondary: string;
-    accent: string;
-    name: string;
+    companyId: string;
+    companyName: string;
+    primaryColor: string;
+    secondaryColor: string;
     logoUrl?: string;
 }
 
 export const companyThemes: Record<string, CompanyTheme> = {
-    // Eletromidia (internal) - Orange
-    internal: {
-        name: 'Eletromidia',
-        primary: '#FA3A00',
-        primaryShades: {
-            50: '#FFF1ED',
-            100: '#FFE1D6',
-            200: '#FFC2AD',
-            300: '#FFA385',
-            400: '#FF845C',
-            500: '#FA3A00',
-            600: '#D63100',
-            700: '#AD2800',
-            800: '#851E00',
-            900: '#5C1500',
-        },
-        secondary: '#0A0F1C',
-        accent: '#FF4E00',
+    'internal': {
+        companyId: 'internal',
+        companyName: 'Eletromidia',
+        primaryColor: '#FF4F00', // Official Eletromidia Brand Orange
+        secondaryColor: '#4E18FF', // Official Eletromidia Accent Purple
+        logoUrl: '/eletromidia/Eletromidia%20Horizontal%20(3).png'
     },
-    // Alvares - Blue/White
-    alvares: {
-        name: 'Alvares',
-        primary: '#002c4d',
-        primaryShades: {
-            50: '#e6f3ff',
-            100: '#cce7ff',
-            200: '#99cfff',
-            300: '#66b0ff',
-            400: '#3391ff',
-            500: '#002c4d',
-            600: '#002744',
-            700: '#00223b',
-            800: '#001d32',
-            900: '#001829',
-        },
-        secondary: '#FFFFFF',
-        accent: '#004a80',
-        logoUrl: '/assets/logo_alvares.png',
+    'bassi': {
+        companyId: 'bassi',
+        companyName: 'Bassi',
+        primaryColor: '#5B9BD5',
+        secondaryColor: '#2B579A',
+        logoUrl: 'https://gvlhjjonhwhifxomwpgu.supabase.co/storage/v1/object/public/assets/LOGO%20BASSI.png'
     },
-    // Bassi - Red/Black
-    bassi: {
-        name: 'Bassi',
-        primary: '#DC2626',
-        primaryShades: {
-            50: '#FEF2F2',
-            100: '#FEE2E2',
-            200: '#FECACA',
-            300: '#FCA5A5',
-            400: '#F87171',
-            500: '#DC2626',
-            600: '#B91C1C',
-            700: '#991B1B',
-            800: '#7F1D1D',
-            900: '#450A0A',
-        },
-        secondary: '#0A0F1C',
-        accent: '#EF4444',
-        logoUrl: '/assets/logo_bassi.png',
+    'silva': {
+        companyId: 'silva',
+        companyName: 'Silva',
+        primaryColor: '#00B050',
+        secondaryColor: '#1E1E1E',
     },
-    // GF1 - Green/White
-    gf1: {
-        name: 'GF1',
-        primary: '#16A34A',
-        primaryShades: {
-            50: '#F0FDF4',
-            100: '#DCFCE7',
-            200: '#BBF7D0',
-            300: '#86EFAC',
-            400: '#4ADE80',
-            500: '#16A34A',
-            600: '#15803D',
-            700: '#166534',
-            800: '#14532D',
-            900: '#052E16',
-        },
-        secondary: '#FFFFFF',
-        accent: '#22C55E',
-    },
-    // AFNogueira - Purple/Violet
-    afnogueira: {
-        name: 'AFNogueira',
-        primary: '#7C3AED',
-        primaryShades: {
-            50: '#F5F3FF',
-            100: '#EDE9FE',
-            200: '#DDD6FE',
-            300: '#C4B5FD',
-            400: '#A78BFA',
-            500: '#7C3AED',
-            600: '#6D28D9',
-            700: '#5B21B6',
-            800: '#4C1D95',
-            900: '#2E1065',
-        },
-        secondary: '#FFFFFF',
-        accent: '#8B5CF6',
-    },
+    'alvares': {
+        companyId: 'alvares',
+        companyName: 'Alvares',
+        primaryColor: '#833C0C',
+        secondaryColor: '#ED7D31',
+    }
 };
 
 interface ThemeContextType {
     theme: CompanyTheme;
-    companyId: string;
-    isDarkSecondary: boolean;
+    setCompanyById: (id: string) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-    theme: companyThemes.internal,
-    companyId: 'internal',
-    isDarkSecondary: true,
+    theme: companyThemes['internal'],
+    setCompanyById: () => { },
 });
 
 export const useTheme = () => useContext(ThemeContext);
 
-interface ThemeProviderProps {
-    companyId: string;
-    children: React.ReactNode;
-}
+export const ThemeProvider: React.FC<{ children: React.ReactNode; companyId?: string }> = ({ children, companyId = 'internal' }) => {
+    const [theme, setTheme] = useState<CompanyTheme>(companyThemes[companyId] || companyThemes['internal']);
 
-export const ThemeProvider: React.FC<ThemeProviderProps> = ({ companyId, children }) => {
-    const theme = useMemo(() => companyThemes[companyId] || companyThemes.internal, [companyId]);
-
-    // Check if secondary color is dark
-    const isDarkSecondary = useMemo(() => {
-        const hex = theme.secondary.replace('#', '');
-        const r = parseInt(hex.substring(0, 2), 16);
-        const g = parseInt(hex.substring(2, 4), 16);
-        const b = parseInt(hex.substring(4, 6), 16);
-        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-        return luminance < 0.5;
-    }, [theme.secondary]);
-
-    // Apply theme to CSS variables & Tailwind config
     useEffect(() => {
-        const root = document.documentElement;
+        const selectedTheme = companyThemes[companyId.toLowerCase()] || companyThemes['internal'];
+        setTheme(selectedTheme);
 
-        // Set CSS custom properties
-        root.style.setProperty('--color-primary', theme.primary);
-        root.style.setProperty('--color-primary-50', theme.primaryShades[50]);
-        root.style.setProperty('--color-primary-100', theme.primaryShades[100]);
-        root.style.setProperty('--color-primary-200', theme.primaryShades[200]);
-        root.style.setProperty('--color-primary-300', theme.primaryShades[300]);
-        root.style.setProperty('--color-primary-400', theme.primaryShades[400]);
-        root.style.setProperty('--color-primary-500', theme.primaryShades[500]);
-        root.style.setProperty('--color-primary-600', theme.primaryShades[600]);
-        root.style.setProperty('--color-primary-700', theme.primaryShades[700]);
-        root.style.setProperty('--color-primary-800', theme.primaryShades[800]);
-        root.style.setProperty('--color-primary-900', theme.primaryShades[900]);
-        root.style.setProperty('--color-secondary', theme.secondary);
-        root.style.setProperty('--color-accent', theme.accent);
+        document.documentElement.style.setProperty('--color-primary', selectedTheme.primaryColor);
+        document.documentElement.style.setProperty('--color-secondary', selectedTheme.secondaryColor);
 
-        // Update Tailwind config dynamically
         if ((window as any).tailwind) {
             (window as any).tailwind.config = {
+                darkMode: 'class',
                 theme: {
                     extend: {
+                        fontFamily: {
+                            sans: ['"Rethink Sans"', 'system-ui', 'Arial', 'Helvetica', 'sans-serif'],
+                            display: ['"Rethink Sans"', 'system-ui', 'Arial', 'Helvetica', 'sans-serif'],
+                            mono: ['"JetBrains Mono"', 'monospace'],
+                        },
                         colors: {
                             primary: {
-                                DEFAULT: theme.primary,
-                                50: theme.primaryShades[50],
-                                100: theme.primaryShades[100],
-                                200: theme.primaryShades[200],
-                                300: theme.primaryShades[300],
-                                400: theme.primaryShades[400],
-                                500: theme.primaryShades[500],
-                                600: theme.primaryShades[600],
-                                700: theme.primaryShades[700],
-                                800: theme.primaryShades[800],
-                                900: theme.primaryShades[900],
+                                DEFAULT: selectedTheme.primaryColor,
+                                50: `${selectedTheme.primaryColor}10`,
+                                100: `${selectedTheme.primaryColor}20`,
+                                200: `${selectedTheme.primaryColor}30`,
+                                300: `${selectedTheme.primaryColor}40`,
+                                400: `${selectedTheme.primaryColor}60`,
+                                500: selectedTheme.primaryColor,
+                                600: selectedTheme.primaryColor,
+                                700: selectedTheme.primaryColor,
                             },
-                            secondary: theme.secondary,
-                            accent: theme.accent,
+                            secondary: selectedTheme.secondaryColor,
+                            eletro: {
+                                orange: '#FF4F00',
+                                black: '#000000',
+                                white: '#FFFFFF',
+                                purple: '#4E18FF',
+                                yellow: '#FECC14',
+                                pink: '#F577ED',
+                                green: '#3D7700',
+                            }
                         },
-                        fontFamily: {
-                            sans: ['Inter', 'sans-serif'],
-                        },
-                    },
-                },
+                        borderRadius: {
+                            sm: '4px',
+                            md: '12px',
+                            xl: '12px',
+                            '2xl': '16px',
+                            '3xl': '20px',
+                        }
+                    }
+                }
             };
         }
-    }, [theme]);
+    }, [companyId]);
+
+    const setCompanyById = (id: string) => {
+        const selected = companyThemes[id.toLowerCase()] || companyThemes['internal'];
+        setTheme(selected);
+    };
 
     return (
-        <ThemeContext.Provider value={{ theme, companyId, isDarkSecondary }}>
+        <ThemeContext.Provider value={{ theme, setCompanyById }}>
             {children}
         </ThemeContext.Provider>
     );

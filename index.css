@@ -1,117 +1,253 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* ==========================================================================
+   OOH Ops — Eletromidia Institutional Design System (v1.1.0)
+   Official Brand Typeface: Rethink Sans + JetBrains Mono
+   Official Tokens: #FF4F00 (Orange), #000000 (Black), #FFFFFF (White),
+   #4E18FF (Purple), #FECC14 (Yellow), #F577ED (Pink), #3D7700 (Green)
+   ========================================================================== */
 
-/* Base styles and responsive resets */
-body {
-    margin: 0;
-    padding: 0;
-    font-family: 'Inter', sans-serif !important;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+@font-face {
+  font-family: 'Rethink Sans';
+  src: url('/eletromidia/RethinkSans-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
 }
 
-/* Custom scrollbar for better mobile appearance */
+@font-face {
+  font-family: 'Rethink Sans';
+  src: url('/eletromidia/RethinkSans-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Surface Hierarchy */
+  --bg-canvas: #F4F5F7;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #F8F9FA;
+  --bg-capsule-track: #ECEEF2;
+
+  /* Eletromidia Institutional Colors */
+  --color-primary: #FF4F00;
+  --color-black: #000000;
+  --color-white: #FFFFFF;
+  --color-accent-purple: #4E18FF;
+  --color-accent-yellow: #FECC14;
+  --color-accent-pink: #F577ED;
+  --color-accent-green: #3D7700;
+
+  /* Typography & Ink Hierarchy */
+  --ink-primary: #000000;
+  --ink-secondary: #525866;
+  --ink-muted: #868C98;
+
+  /* Brand & Semantic Accents */
+  --brand-orange: #FF4F00;
+  --brand-orange-hover: #E04400;
+  --brand-orange-soft: #FFF4EE;
+  --status-emerald: #3D7700;
+  --status-amber: #FECC14;
+  --status-crimson: #E11D48;
+
+  /* Borders & Dividers (4px base spacing system) */
+  --border-subtle: #E6E8EC;
+  --border-strong: #D4D8E0;
+
+  /* Official Border Radius Tokens (Section 2.4) */
+  --radius-sm: 4px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-card: 20px;
+  --radius-inner: 12px;
+  --radius-pill: 9999px;
+
+  /* Shadows */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03), 0 8px 24px -6px rgba(0, 0, 0, 0.05);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 32px -8px rgba(0, 0, 0, 0.08);
+  --shadow-nav: 0 1px 0 0 #E6E8EC, 0 8px 20px -8px rgba(0, 0, 0, 0.04);
+
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+
+  /* Fonts */
+  --font-sans: 'Rethink Sans', system-ui, Arial, Helvetica, sans-serif;
+  --font-display: 'Rethink Sans', system-ui, Arial, Helvetica, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  background-color: var(--bg-canvas);
+  color: var(--ink-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  caret-color: var(--color-primary);
+  overflow-x: hidden;
+}
+
+/* Browser Surface & Accessibility */
+::selection {
+  background-color: rgba(255, 79, 0, 0.16);
+  color: #FF4F00;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent-purple);
+  outline-offset: 2px;
+}
+
+/* Suppress focus outline inside capsule nav where the sliding pill is the indicator */
+.ooh-nav-btn:focus,
+.ooh-nav-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Typography Utilities */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.font-mono-code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Eletromidia Card System (Section 5: White background, 20px radius, subtle shadow) */
+.ooh-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  transition:
+    transform 240ms var(--ease-out-quart),
+    box-shadow 240ms var(--ease-out-quart),
+    border-color 200ms ease;
+}
+
+.ooh-card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card-hover);
+  border-color: var(--border-strong);
+}
+
+/* Top Navbar Capsule Track & Animated Indicator (Uniform 44px height) */
+.ooh-nav-track {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  background-color: var(--bg-capsule-track);
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  border: 1px solid #E2E5EB;
+}
+
+.ooh-nav-pill {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  background-color: var(--color-black);
+  border-radius: var(--radius-pill);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+  transition:
+    transform 360ms var(--ease-out-expo),
+    width 360ms var(--ease-out-expo),
+    opacity 200ms ease;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Modern Input Controls (12px radius-md) */
+.ooh-input {
+  width: 100%;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  color: var(--ink-primary);
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.ooh-input:hover {
+  border-color: var(--border-strong);
+}
+
+.ooh-input:focus {
+  outline: none;
+  background-color: #FFFFFF;
+  border-color: var(--color-accent-purple);
+  box-shadow: 0 0 0 3px rgba(78, 24, 255, 0.12);
+}
+
+/* View Transition Animation */
+@keyframes oohFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ooh-view-enter {
+  animation: oohFadeUp 360ms var(--ease-out-expo) both;
+}
+
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-    background: transparent;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #e2e8f0;
-    border-radius: 10px;
+  background: #D0D5DD;
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #cbd5e1;
+  background: #98A2B3;
 }
 
-/* No scrollbar utility */
 .no-scrollbar::-webkit-scrollbar {
-    display: none;
+  display: none;
 }
+
 .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
-
-/* Animation utilities */
-.animate-headShake {
-    animation: headShake 0.5s ease-in-out;
-}
-
-@keyframes headShake {
-    0% { transform: translateX(0); }
-    6.5% { transform: translateX(-6px) rotateY(-9deg); }
-    18.5% { transform: translateX(5px) rotateY(7deg); }
-    31.5% { transform: translateX(-3px) rotateY(-5deg); }
-    43.5% { transform: translateX(2px) rotateY(3deg); }
-    50% { transform: translateX(0); }
-}
-
-/* =========================================
-   Landing Page Specific Styles
-   ========================================= */
-
-html {
-    scroll-behavior: smooth;
-}
-
-/* Glow background effect */
-.landing-glow-bg {
-    position: absolute;
-    width: 600px;
-    height: 600px;
-    background: radial-gradient(circle, rgba(250, 58, 0, 0.08) 0%, rgba(255, 255, 255, 0) 70%);
-    border-radius: 50%;
-    pointer-events: none;
-    z-index: 0;
-}
-
-/* Float animation for phone mockup */
-@keyframes landing-float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-}
-.landing-float-animation {
-    animation: landing-float 6s ease-in-out infinite;
-}
-
-/* Simulator screen transitions */
-.landing-sim-screen {
-    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Toast animation */
-@keyframes toast-slide-in {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-}
-@keyframes toast-slide-out {
-    from { transform: translateX(0); opacity: 1; }
-    to { transform: translateX(100%); opacity: 0; }
-}
-.landing-toast-enter {
-    animation: toast-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-.landing-toast-exit {
-    animation: toast-slide-out 0.3s ease-in forwards;
-}
-
-/* Landing page font override */
-.landing-page-root {
-    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
-}
-
-/* Fade in animation */
-@keyframes landing-fade-in-up {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-.landing-fade-in-up {
-    animation: landing-fade-in-up 0.6s ease-out forwards;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

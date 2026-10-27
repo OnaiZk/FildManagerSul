@@ -1,4 +1,4 @@
-
+﻿
 import React, { useState, useCallback } from 'react';
 import { Task, TaskStatus } from '../types';
 import { MapPin, Info, Loader2, Navigation } from 'lucide-react';
@@ -49,11 +49,11 @@ const MapaView: React.FC<Props> = ({ tasks }) => {
 
   const getMarkerIcon = (status: TaskStatus) => {
     switch (status) {
-      case TaskStatus.COMPLETED: return "http://maps.google.com/mapfiles/ms/icons/green-dot.png";
-      case TaskStatus.IN_PROGRESS: return "http://maps.google.com/mapfiles/ms/icons/blue-dot.png";
-      case TaskStatus.BLOCKED: return "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png";
-      case TaskStatus.NOT_PERFORMED: return "http://maps.google.com/mapfiles/ms/icons/red-dot.png";
-      default: return "http://maps.google.com/mapfiles/ms/icons/orange-dot.png";
+      case TaskStatus.COMPLETED: return "https://maps.google.com/mapfiles/ms/icons/green-dot.png";
+      case TaskStatus.IN_PROGRESS: return "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
+      case TaskStatus.BLOCKED: return "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png";
+      case TaskStatus.NOT_PERFORMED: return "https://maps.google.com/mapfiles/ms/icons/red-dot.png";
+      default: return "https://maps.google.com/mapfiles/ms/icons/orange-dot.png";
     }
   };
 
@@ -136,10 +136,10 @@ const MapaView: React.FC<Props> = ({ tasks }) => {
               <div className="w-3 h-3 rounded-full bg-blue-500" /> Em Andamento
             </div>
             <div className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
-              <div className="w-3 h-3 rounded-full bg-green-500" /> Concluídos
+              <div className="w-3 h-3 rounded-full bg-green-500" /> ConcluÃ­dos
             </div>
             <div className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
-              <div className="w-3 h-3 rounded-full bg-red-500" /> Não Realizados
+              <div className="w-3 h-3 rounded-full bg-red-500" /> NÃ£o Realizados
             </div>
           </div>
         </div>
@@ -187,8 +187,9 @@ const mapStyles = [
   {
     "featureType": "water",
     "elementType": "all",
-    "stylers": [{ "color": "#FA3A00" }, { "visibility": "on" }, { "opacity": 0.1 }]
+    "stylers": [{ "color": "#FF4F00" }, { "visibility": "on" }, { "opacity": 0.1 }]
   }
 ];
 
 export default MapaView;
+

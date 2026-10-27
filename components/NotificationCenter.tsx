@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, X, Info, CheckCircle, AlertTriangle } from 'lucide-react';
 import { supabase } from '../api/supabaseClient';
-import { User, Task } from '../types';
+import { User } from '../types';
 
 interface Notification {
     id: string;
@@ -28,7 +28,6 @@ export const NotificationCenter: React.FC<Props> = ({ currentUser }) => {
     useEffect(() => {
         if (!currentUser) return;
 
-        // Listen for new tasks assigned to this user
         const channel = supabase
             .channel('new-tasks-notification')
             .on(
@@ -46,7 +45,6 @@ export const NotificationCenter: React.FC<Props> = ({ currentUser }) => {
                             timestamp: new Date()
                         });
 
-                        // Browser Notification if permitted
                         if ("Notification" in window && Notification.permission === "granted") {
                             new Notification("Nova OS Atribuída", {
                                 body: `Tarefa: ${newTask.service_type}`
@@ -79,11 +77,12 @@ export const NotificationCenter: React.FC<Props> = ({ currentUser }) => {
         <div className="relative">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="relative p-2 text-slate-400 hover:text-primary hover:bg-primary-50 rounded-xl transition-all"
+                aria-label="Notificações"
+                className="relative w-9 h-9 rounded-full flex items-center justify-center text-[#525866] hover:text-[#141518] bg-[#F4F5F7] hover:bg-[#ECEEF2] border border-[#E6E8EC] transition-all"
             >
-                <Bell size={24} />
+                <Bell size={16} />
                 {unreadCount > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-5 h-5 bg-red-500 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white animate-bounce">
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-[#FF4F00] text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white tabular-nums">
                         {unreadCount}
                     </span>
                 )}
@@ -92,55 +91,59 @@ export const NotificationCenter: React.FC<Props> = ({ currentUser }) => {
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-3xl shadow-2xl border border-slate-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Notificações</h3>
-                            <button
-                                onClick={markAllAsRead}
-                                className="text-[10px] font-black text-primary hover:underline uppercase"
-                            >
-                                Limpar tudo
-                            </button>
+                    <div className="absolute right-0 mt-2.5 w-80 sm:w-96 ooh-card shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="px-5 py-3.5 bg-[#F4F5F7]/70 border-b border-[#E6E8EC] flex justify-between items-center">
+                            <h3 className="font-display text-sm font-bold text-[#141518]">Notificações</h3>
+                            {notifications.length > 0 && (
+                                <button
+                                    onClick={markAllAsRead}
+                                    className="text-xs font-semibold text-[#FF4F00] hover:underline"
+                                >
+                                    Marcar como lidas
+                                </button>
+                            )}
                         </div>
 
-                        <div className="max-h-[400px] overflow-y-auto">
+                        <div className="max-h-[380px] overflow-y-auto divide-y divide-[#E6E8EC]">
                             {notifications.length === 0 ? (
-                                <div className="p-10 text-center">
-                                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-300">
-                                        <Bell size={20} />
+                                <div className="p-8 text-center">
+                                    <div className="w-10 h-10 bg-[#F4F5F7] rounded-full flex items-center justify-center mx-auto mb-2.5 text-[#868C98]">
+                                        <Bell size={18} />
                                     </div>
-                                    <p className="text-xs font-bold text-slate-400">Nenhuma notificação por enquanto.</p>
+                                    <p className="text-xs font-medium text-[#525866]">Nenhuma notificação pendente.</p>
                                 </div>
                             ) : (
                                 notifications.map(notif => (
                                     <div
                                         key={notif.id}
-                                        className={`p-4 border-b border-slate-50 flex gap-3 hover:bg-slate-50 transition-colors relative group ${!notif.read ? 'bg-primary/5' : ''}`}
+                                        className={`p-4 flex gap-3 hover:bg-[#F4F5F7]/60 transition-colors relative group ${!notif.read ? 'bg-[#FFF3EE]/40' : ''}`}
                                     >
-                                        <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${notif.type === 'success' ? 'bg-green-100 text-green-600' :
-                                                notif.type === 'warning' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'
-                                            }`}>
-                                            {notif.type === 'success' ? <CheckCircle size={16} /> :
-                                                notif.type === 'warning' ? <AlertTriangle size={16} /> : <Info size={16} />}
+                                        <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
+                                            notif.type === 'success'
+                                                ? 'bg-teal-50 text-teal-600'
+                                                : notif.type === 'warning'
+                                                ? 'bg-amber-50 text-amber-600'
+                                                : 'bg-sky-50 text-sky-600'
+                                        }`}>
+                                            {notif.type === 'success' ? <CheckCircle size={15} /> :
+                                                notif.type === 'warning' ? <AlertTriangle size={15} /> : <Info size={15} />}
                                         </div>
-                                        <div className="flex-1 pr-4">
-                                            <p className="text-xs font-black text-slate-800 mb-0.5">{notif.title}</p>
-                                            <p className="text-[11px] text-slate-500 font-medium leading-relaxed">{notif.message}</p>
-                                            <p className="text-[9px] text-slate-400 mt-1 font-bold">{notif.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                        <div className="flex-1 pr-5">
+                                            <p className="text-xs font-semibold text-[#141518] mb-0.5">{notif.title}</p>
+                                            <p className="text-xs text-[#525866] leading-relaxed">{notif.message}</p>
+                                            <p className="font-mono-code text-[10px] text-[#868C98] mt-1">
+                                                {notif.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </p>
                                         </div>
                                         <button
                                             onClick={(e) => removeNotification(notif.id, e)}
-                                            className="absolute top-4 right-4 text-slate-300 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            className="absolute top-3.5 right-3.5 text-[#868C98] hover:text-[#141518] opacity-0 group-hover:opacity-100 transition-opacity"
                                         >
                                             <X size={14} />
                                         </button>
                                     </div>
                                 ))
                             )}
-                        </div>
-
-                        <div className="p-3 bg-slate-50 text-center">
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Fim das notificações</p>
                         </div>
                     </div>
                 </>

@@ -4,8 +4,30 @@ import { User, DailyReport, DailyActivity, Team, UserRole, Absence, Vehicle, Ope
 import { ACTIVITY_TYPES } from '../api/activityTypes';
 import { getTeams, getAllUsers, getDailyReportByTeamAndDate, upsertDailyReport, createAbsence, getAbsences, deleteAbsence, getVehicles, getOpecDevices, getDailyReports, getDailyReportsForMonth, subscribeToDailyActivities, deleteDailyActivity, updateDailyActivityQuantity } from '../api/fieldManagerApi';
 import { supabase } from '../api/supabaseClient';
-import { ClipboardList, Users, Calendar, Plus, Save, History, X, AlertCircle, Download, Trash2, Car, Smartphone, Search, CheckCircle, Edit2, Sun, Moon } from 'lucide-react';
+import { ClipboardList, Users, Calendar, Plus, Save, History, X, AlertCircle, Download, Trash2, Car, Smartphone, Search, CheckCircle, Edit2, Clock, Unlock, Lock, Sun, Moon } from 'lucide-react';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
+
+const getLocalDateString = (d: Date = new Date()) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const getYesterdayDateString = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return getLocalDateString(d);
+};
+
+const formatDateBR = (isoDate: string) => {
+    if (!isoDate) return '';
+    const parts = isoDate.split('-');
+    if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return isoDate;
+};
 
 interface Props {
     currentUser: User;
@@ -14,7 +36,8 @@ interface Props {
 export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     const [selectedTeam, setSelectedTeam] = useState<string>('');
     const [selectedTechnicianIds, setSelectedTechnicianIds] = useState<string[]>([]);
-    const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [date, setDate] = useState<string>(getLocalDateString());
+    const [isRetroactive, setIsRetroactive] = useState(false);
     const [teams, setTeams] = useState<Team[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -38,32 +61,33 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     const [isEditingReport, setIsEditingReport] = useState(false);
     const isEditingRef = useRef(false);
 
-    const defaultShift = useMemo(() => {
+    // Determina o turno padrão com base no horário atual de Brasília:
+    // Diurno: Seg-Qui 07:30-18:30, Sex 07:30-17:30 | Demais horários: Noturno
+    const defaultShift = useMemo((): 'Diurno' | 'Noturno' => {
         const now = new Date();
-        const dayOfWeek = now.getDay(); // 0 = Sun, 1 = Mon, ..., 5 = Fri, 6 = Sat
-        const hours = now.getHours();
-        const minutes = now.getMinutes();
-        const timeInMins = hours * 60 + minutes;
-
-        // Diurno: Mon-Thu 07:30 (450m) to 17:30 (1050m), Fri 07:30 to 16:30 (990m)
-        const isFriday = dayOfWeek === 5;
-        const diurnoStart = 7 * 60 + 30;
-        const diurnoEnd = isFriday ? (16 * 60 + 30) : (17 * 60 + 30);
-
-        if (timeInMins >= diurnoStart && timeInMins <= diurnoEnd + 60) {
-            return 'Diurno';
+        const day = now.getDay(); // 0=Dom, 1=Seg ... 5=Sex, 6=Sab
+        const minutes = now.getHours() * 60 + now.getMinutes();
+        const startDiurno = 7 * 60 + 30; // 07:30 = 450min
+        if (day >= 1 && day <= 4) {
+            // Seg a Qui: 07:30 até 18:30 (1110min)
+            return minutes >= startDiurno && minutes <= 18 * 60 + 30 ? 'Diurno' : 'Noturno';
+        }
+        if (day === 5) {
+            // Sexta: 07:30 até 17:30 (1050min)
+            return minutes >= startDiurno && minutes <= 17 * 60 + 30 ? 'Diurno' : 'Noturno';
         }
         return 'Noturno';
     }, []);
 
     const isToday = useMemo(() => {
-        const today = new Date().toISOString().split('T')[0];
-        return date === today;
+        return date === getLocalDateString();
     }, [date]);
 
     const isChief = currentUser.role === UserRole.CHEFE || currentUser.role === UserRole.PARCEIRO_CHEFE;
     // REGRA 2: Chefes e Líderes veem visualização consolidada
     const isLeaderOrChief = [UserRole.LIDER, UserRole.CHEFE, UserRole.PARCEIRO_LIDER, UserRole.PARCEIRO_CHEFE].includes(currentUser.role);
+    // Permissão de edição: hoje, chefe ou lançamento retroativo ativado
+    const canEdit = isToday || isChief || isRetroactive;
 
 
     useEffect(() => {
@@ -148,9 +172,9 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             } else {
                 setReport({
                     date,
+                    shift: defaultShift,
                     teamId: selectedTeam || undefined,
                     technicianIds: selectedTeam ? undefined : selectedTechnicianIds,
-                    shift: defaultShift,
                     userId: currentUser.id,
                     companyId: currentUser.companyId,
                     activities: []
@@ -181,8 +205,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     };
 
     const handleAddActivity = (activityType: string) => {
-        if (!isToday && !isChief) {
-            alert('Apenas chefes podem editar relatórios de datas passadas.');
+        if (!canEdit) {
+            alert('Edição bloqueada para esta data. Ative a opção de lançamento retroativo para preencher.');
             return;
         }
 
@@ -209,13 +233,13 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     };
 
     const handleDeleteActivity = async (index: number) => {
-        if (!isToday && !isChief) {
-            alert('Apenas chefes podem editar relatórios de datas passadas.');
+        if (!canEdit) {
+            alert('Edição bloqueada para esta data. Ative a opção de lançamento retroativo para editar.');
             return;
         }
 
         const activityToDelete = selectedActivities[index];
-
+        
         if (window.confirm(`Tem certeza que deseja excluir a atividade "${activityToDelete.activityType}"?`)) {
             // Se a atividade já tem ID, ela está no banco de dados e precisa ser excluída lá também
             if (activityToDelete.id) {
@@ -227,7 +251,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                     return; // Não remove do estado se falhou no banco
                 }
             }
-
+            
             // Remove do estado local
             setSelectedActivities(prev => prev.filter((_, i) => i !== index));
         }
@@ -235,8 +259,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
     // Quantity change now needs index because we can have multiple of same type
     const handleQuantityChange = (index: number, quantity: number) => {
-        if (!isToday && !isChief) {
-            alert('Apenas chefes podem editar relatórios de datas passadas.');
+        if (!canEdit) {
+            alert('Edição bloqueada para esta data. Ative a opção de lançamento retroativo para editar.');
             return;
         }
         setSelectedActivities(prev => prev.map((a, i) =>
@@ -253,6 +277,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         isEditingRef.current = false;
         setReport({
             date,
+            shift: defaultShift,
             teamId: undefined,
             technicianIds: undefined,
             userId: currentUser.id,
@@ -260,6 +285,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             activities: [],
             carPlate: undefined,
             opecId: undefined,
+            driverId: undefined,
+            driverName: undefined,
             route: '',
             notes: ''
         });
@@ -269,6 +296,10 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     const handleEditReport = (reportToEdit: DailyReport) => {
         // Seta ref ANTES de mudar state para o useEffect não disparar loadReport
         isEditingRef.current = true;
+
+        if (!isToday && !isChief) {
+            setIsRetroactive(true);
+        }
 
         // Carrega o relatório existente no formulário para edição
         setReport(reportToEdit);
@@ -293,7 +324,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             return;
         }
 
-        if (!report?.carPlate || !report?.opecId) {
+        const hasExternalActivities = selectedActivities.some(a => a.activityType !== 'Interno' && a.activityType !== '{Interno}');
+        if (hasExternalActivities && (!report?.carPlate || !report?.opecId)) {
             alert('Seleção obrigatória: Por favor, selecione o VEÍCULO e o OPEC antes de salvar o relatório.');
             return;
         }
@@ -305,21 +337,26 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             // retains whatever was explicitly selected in the top form (team or specific techs).
             const reportToSave: Omit<DailyReport, 'id'> = {
                 date,
+                shift: report?.shift || defaultShift,
                 userId: currentUser.id,
                 teamId: selectedTeam || undefined,
                 technicianIds: selectedTeam ? undefined : (selectedTechnicianIds.length > 0 ? selectedTechnicianIds : undefined),
-                shift: report?.shift || defaultShift,
                 companyId: currentUser.companyId,
                 activities: selectedActivities,
                 carPlate: report?.carPlate,
                 opecId: report?.opecId,
+                driverId: report?.driverId,
+                driverName: report?.driverName,
                 route: report?.route,
                 notes: report?.notes
             };
 
             await upsertDailyReport(reportToSave, report?.id);
 
-            alert('Relatório salvo com sucesso!');
+            const isRetroactiveSave = !isToday;
+            alert(isRetroactiveSave
+                ? `Relatório retroativo salvo com sucesso para o dia ${formatDateBR(date)}!`
+                : 'Relatório salvo com sucesso!');
 
             // Fix: Reset form instead of reloading the same report ID
             // This allows saving multiple reports for different teams/techs in the same day without overwriting
@@ -338,8 +375,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     };
 
     const handleAddAbsence = async (employeeId: string, reason: string) => {
-        if (!isToday && !isChief) {
-            alert('Apenas chefes podem editar ausências de datas passadas.');
+        if (!canEdit) {
+            alert('Edição de ausências bloqueada para esta data. Ative a opção de lançamento retroativo.');
             return;
         }
         const employee = users.find(u => u.id === employeeId);
@@ -360,8 +397,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     };
 
     const handleDeleteAbsence = async (id: string) => {
-        if (!isToday && !isChief) {
-            alert('Apenas chefes podem remover ausências de datas passadas.');
+        if (!canEdit) {
+            alert('Remoção de ausências bloqueada para esta data. Ative a opção de lançamento retroativo.');
             return;
         }
         if (!confirm('Tem certeza que deseja remover esta falta?')) return;
@@ -416,12 +453,13 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         );
 
         // --- SHEET 1: ATIVIDADES ---
-        // Header row - REGRA 3: Inclui coluna Líder Responsável
-        const activitiesHeader = ['Data', 'Turno', 'Veículo', 'OPEC', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Líder Responsável', 'Observações'];
-        // Use maxTechs calculated from all reports
-        for (let i = 0; i < Math.max(maxTechs, 1); i++) {
-            activitiesHeader.push(`Técnico ${i + 1}`);
+        const activitiesHeader = ['Data', 'Turno', 'Veículo', 'OPEC', 'Motorista'];
+        // Show Técnico 2, Técnico 3, Técnico 4 (or more if maxTechs is larger)
+        const techHeaderCount = Math.max(maxTechs - 1, 3);
+        for (let i = 2; i <= techHeaderCount + 1; i++) {
+            activitiesHeader.push(`Técnico ${i}`);
         }
+        activitiesHeader.push('Líder Responsável', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Observações');
 
         const headerRow = wsActivities.getRow(startRow);
         headerRow.values = activitiesHeader;
@@ -438,27 +476,42 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 const activityCarInfo = a.carPlate ? vehicles.find(v => v.plate === a.carPlate) : fallbackCarInfo;
                 const activityOpecInfo = a.opecId ? opecDevices.find(o => o.id === a.opecId) : fallbackOpecInfo;
 
-                // REGRA 3: Inclui liderName no Excel
+                const leaderName = a.liderName || users.find(u => u.id === r.userId)?.name || 'Desconhecido';
+                const driverName = r.driverName || 'N/A';
+
                 const rowData: (string | number)[] = [
-                    date,
+                    r.date,
                     r.shift || 'Diurno',
                     activityCarInfo ? `${activityCarInfo.model} (${activityCarInfo.plate})` : '',
                     activityOpecInfo ? `${activityOpecInfo.assetCode}` : '',
+                    driverName
+                ];
+
+                const techList: string[] = [];
+                if (a.technicianIds && a.technicianIds.length > 0) {
+                    a.technicianIds.forEach(tid => {
+                        if (tid !== r.driverId) {
+                            const techName = users.find(u => u.id === tid)?.name || 'Desconhecido';
+                            techList.push(techName);
+                        }
+                    });
+                } else {
+                    techList.push('Equipe Completa');
+                }
+
+                // Pad technicians to match the number of header columns
+                for (let i = 0; i < techHeaderCount; i++) {
+                    rowData.push(techList[i] || '');
+                }
+
+                // Append remaining fields
+                rowData.push(
+                    leaderName,
                     r.route || '',
                     a.activityType,
                     a.quantity,
-                    a.liderName || users.find(u => u.id === r.userId)?.name || 'Desconhecido', // Líder Responsável
                     r.notes || ''
-                ];
-
-                if (a.technicianIds && a.technicianIds.length > 0) {
-                    a.technicianIds.forEach(tid => {
-                        const techName = users.find(u => u.id === tid)?.name || 'Desconhecido';
-                        rowData.push(techName);
-                    });
-                } else {
-                    rowData.push('Equipe Completa');
-                }
+                );
 
                 wsActivities.addRow(rowData);
             });
@@ -476,9 +529,10 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
         participants.forEach(m => {
             const absence = absences.find(a => a.employeeId === m.id);
+            const isDriver = allDayReports.some(r => r.driverId === m.id);
             wsMembers.addRow([
                 m.name,
-                m.role.replace('PARCEIRO_', ''),
+                m.role.replace('PARCEIRO_', '') + (isDriver ? ' (Motorista)' : ''),
                 absence ? `AUSENTE: ${absence.reason}` : 'PRESENTE'
             ]);
         });
@@ -495,9 +549,11 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
         const summaryData = [
             ['Data', date],
+            ['Turno', report?.shift || defaultShift],
             ['Equipe/Referência', teamName],
             ['Veículo (Principal)', currentCarInfo ? `${currentCarInfo.model} (${currentCarInfo.plate})` : 'N/A'],
             ['OPEC (Principal)', currentOpecInfo ? `${currentOpecInfo.assetCode} - ${currentOpecInfo.model}` : 'N/A'],
+            ['Motorista da Equipe', report?.driverName || 'N/A'],
             ['Total de Lançamentos (Dia)', allDayReports.reduce((acc, r) => acc + r.activities.length, 0)],
             ['Total de Peças/Qtd (Dia)', allDayReports.reduce((acc, r) => acc + r.activities.reduce((sum, a) => sum + a.quantity, 0), 0)],
             ['Relatórios Consolidados', allDayReports.length],
@@ -579,10 +635,12 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             );
 
             // --- SHEET 1: ATIVIDADES ---
-            const activitiesHeader = ['Data', 'Turno', 'Veículo', 'OPEC', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Líder Responsável', 'Observações'];
-            for (let i = 0; i < Math.max(maxTechs, 1); i++) {
-                activitiesHeader.push(`Técnico ${i + 1}`);
+            const activitiesHeader = ['Data', 'Turno', 'Veículo', 'OPEC', 'Motorista'];
+            const techHeaderCount = Math.max(maxTechs - 1, 3);
+            for (let i = 2; i <= techHeaderCount + 1; i++) {
+                activitiesHeader.push(`Técnico ${i}`);
             }
+            activitiesHeader.push('Líder Responsável', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Observações');
 
             const headerRow = wsActivities.getRow(startRow);
             headerRow.values = activitiesHeader;
@@ -599,26 +657,40 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                     const activityCarInfo = a.carPlate ? vehicles.find(v => v.plate === a.carPlate) : fallbackCarInfo;
                     const activityOpecInfo = a.opecId ? opecDevices.find(o => o.id === a.opecId) : fallbackOpecInfo;
 
+                    const leaderName = a.liderName || users.find(u => u.id === r.userId)?.name || 'Desconhecido';
+                    const driverName = r.driverName || 'N/A';
+
                     const rowData: (string | number)[] = [
                         r.date,
                         r.shift || 'Diurno',
                         activityCarInfo ? `${activityCarInfo.model} (${activityCarInfo.plate})` : '',
                         activityOpecInfo ? `${activityOpecInfo.assetCode}` : '',
+                        driverName
+                    ];
+
+                    const techList: string[] = [];
+                    if (a.technicianIds && a.technicianIds.length > 0) {
+                        a.technicianIds.forEach(tid => {
+                            if (tid !== r.driverId) {
+                                const techName = users.find(u => u.id === tid)?.name || 'Desconhecido';
+                                techList.push(techName);
+                            }
+                        });
+                    } else {
+                        techList.push('Equipe Completa');
+                    }
+
+                    for (let i = 0; i < techHeaderCount; i++) {
+                        rowData.push(techList[i] || '');
+                    }
+
+                    rowData.push(
+                        leaderName,
                         r.route || '',
                         a.activityType,
                         a.quantity,
-                        a.liderName || users.find(u => u.id === r.userId)?.name || 'Desconhecido',
                         r.notes || ''
-                    ];
-
-                    if (a.technicianIds && a.technicianIds.length > 0) {
-                        a.technicianIds.forEach(tid => {
-                            const techName = users.find(u => u.id === tid)?.name || 'Desconhecido';
-                            rowData.push(techName);
-                        });
-                    } else {
-                        rowData.push('Equipe Completa');
-                    }
+                    );
 
                     wsActivities.addRow(rowData);
                 });
@@ -710,6 +782,19 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         }
     }, [selectedTeam, selectedTechnicianIds, teams, users]);
 
+    useEffect(() => {
+        if (report?.driverId && teamMembers.length > 0) {
+            const driverExists = teamMembers.some(m => m.id === report.driverId);
+            if (!driverExists) {
+                setReport(prev => ({
+                    ...prev,
+                    driverId: undefined,
+                    driverName: undefined
+                }));
+            }
+        }
+    }, [teamMembers, report?.driverId]);
+
     const handleToggleTechnician = (techId: string) => {
         setSelectedTechnicianIds(prev => {
             if (prev.includes(techId)) {
@@ -732,7 +817,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
     return (
         <div className="space-y-6 max-w-6xl mx-auto pb-20">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[20px] border border-[#E6E8EC] shadow-sm">
                 <div>
                     <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2 uppercase tracking-tighter">
                         <ClipboardList className="text-primary" />
@@ -742,46 +827,90 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-[#E6E8EC]">
                         <Calendar size={18} className="text-slate-400 ml-2" />
                         <input
                             type="date"
                             value={date}
-                            onChange={e => setDate(e.target.value)}
-                            max={new Date().toISOString().split('T')[0]}
+                            onChange={e => {
+                                const newDate = e.target.value;
+                                setDate(newDate);
+                                if (newDate === getLocalDateString()) {
+                                    setIsRetroactive(false);
+                                }
+                            }}
+                            max={getLocalDateString()}
                             className="bg-transparent border-none font-black text-slate-700 outline-none p-1 text-sm"
                         />
                     </div>
 
-                    {/* Seletor de Turno */}
-                    <div className="flex items-center bg-slate-50 p-1 rounded-2xl border border-slate-100">
+                    {/* Botão de Atalho para Lançar Ontem */}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const yesterday = getYesterdayDateString();
+                            setDate(yesterday);
+                            setIsRetroactive(true);
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-2xl font-black text-xs transition-all border ${
+                            date === getYesterdayDateString() && isRetroactive
+                                ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                                : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                        }`}
+                        title="Preencher relatório referente ao dia de ontem com lançamento retroativo"
+                    >
+                        <Clock size={14} />
+                        Ontem
+                    </button>
+
+                    {/* Toggle rápido de modo retroativo se estiver em data passada */}
+                    {!isToday && !isChief && (
                         <button
                             type="button"
-                            onClick={() => setReport(prev => prev ? { ...prev, shift: 'Diurno' } : { shift: 'Diurno' })}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-black text-xs transition-all ${
-                                (report?.shift || defaultShift) === 'Diurno'
-                                    ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
-                                    : 'text-slate-500 hover:text-slate-800'
+                            onClick={() => setIsRetroactive(!isRetroactive)}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-2xl font-black text-xs transition-all border ${
+                                isRetroactive
+                                    ? 'bg-amber-50 border-amber-300 text-amber-700 shadow-sm'
+                                    : 'bg-slate-50 border-[#E6E8EC] text-slate-500 hover:border-slate-300'
                             }`}
+                            title={isRetroactive ? 'Clique para bloquear edição retroativa' : 'Clique para habilitar edição retroativa'}
                         >
-                            <Sun size={15} />
+                            {isRetroactive ? <Unlock size={14} className="text-amber-600" /> : <Lock size={14} className="text-slate-400" />}
+                            <span>{isRetroactive ? 'Retroativo Ativo' : 'Leitura'}</span>
+                        </button>
+                    )}
+
+                    {/* Seletor de Turno: Diurno / Noturno */}
+                    <div className="flex items-center bg-slate-50 p-1 rounded-2xl border border-[#E6E8EC]">
+                        <button
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => setReport(prev => ({ ...prev, shift: 'Diurno' }))}
+                            title="Diurno: Seg-Qui 07:30 às 18:30 | Sex 07:30 às 17:30"
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all ${(report?.shift || defaultShift) === 'Diurno'
+                                ? 'bg-amber-500 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                                } disabled:opacity-50`}
+                        >
+                            <Sun size={14} />
                             Diurno
                         </button>
                         <button
                             type="button"
-                            onClick={() => setReport(prev => prev ? { ...prev, shift: 'Noturno' } : { shift: 'Noturno' })}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-black text-xs transition-all ${
-                                report?.shift === 'Noturno'
-                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                                    : 'text-slate-500 hover:text-slate-800'
-                            }`}
+                            disabled={!canEdit}
+                            onClick={() => setReport(prev => ({ ...prev, shift: 'Noturno' }))}
+                            title="Noturno: Após 18:30 (Seg-Qui) ou após 17:30 (Sex)"
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all ${(report?.shift || defaultShift) === 'Noturno'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                                } disabled:opacity-50`}
                         >
-                            <Moon size={15} />
+                            <Moon size={14} />
                             Noturno
                         </button>
                     </div>
 
-                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                    <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-[#E6E8EC]">
                         <Users size={18} className="text-slate-400 ml-2" />
                         <select
                             value={selectedTeam}
@@ -797,21 +926,46 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                         onClick={() => { setSelectedTeam(''); setIsTechModalOpen(true); }}
                         className={`flex items-center gap-2 px-4 py-2 rounded-2xl font-black text-xs transition-all border ${!selectedTeam && selectedTechnicianIds.length > 0
                             ? 'bg-primary/10 border-primary text-primary'
-                            : 'bg-slate-50 border-slate-100 text-slate-500 hover:border-slate-300'
+                            : 'bg-slate-50 border-[#E6E8EC] text-slate-500 hover:border-slate-300'
                             }`}
                     >
                         <Plus size={14} />
                         {selectedTechnicianIds.length > 0 && !selectedTeam
                             ? `${selectedTechnicianIds.length} Técnicos`
-                            : 'Equipe'}
+                            : 'Personalizar'}
                     </button>
+
+                    {teamMembers.length > 0 && (
+                        <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-[#E6E8EC] animate-in fade-in slide-in-from-top-1 duration-200">
+                            <span className="text-[10px] font-black text-slate-400 uppercase ml-2">Motorista</span>
+                            <select
+                                value={report?.driverId || ''}
+                                onChange={e => {
+                                    const selectedId = e.target.value;
+                                    const selectedName = users.find(u => u.id === selectedId)?.name || '';
+                                    setReport(prev => ({
+                                        ...prev,
+                                        driverId: selectedId || undefined,
+                                        driverName: selectedName || undefined
+                                    }));
+                                }}
+                                disabled={!canEdit}
+                                className="bg-transparent border-none font-black text-slate-700 outline-none p-1 text-sm min-w-[140px] disabled:opacity-50"
+                            >
+                                <option value="">Selecionar Motorista</option>
+                                {teamMembers.map(m => (
+                                    <option key={m.id} value={m.id}>{m.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
 
                     <div className="h-6 w-px bg-slate-200 mx-2 hidden md:block"></div>
 
                     {/* Selections for Vehicle and OPEC */}
                     <button
                         onClick={() => setIsVehicleModalOpen(true)}
-                        className="flex items-center gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-100 hover:border-slate-200 transition-all text-xs font-black text-slate-700 min-w-[150px] group"
+                        className="flex items-center gap-2 bg-slate-50 p-3 rounded-2xl border border-[#E6E8EC] hover:border-[#E6E8EC] transition-all text-xs font-black text-slate-700 min-w-[150px] group"
                     >
                         <Car size={18} className="text-slate-400 group-hover:text-primary transition-colors" />
                         <span className="truncate">
@@ -823,7 +977,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
                     <button
                         onClick={() => setIsOpecModalOpen(true)}
-                        className="flex items-center gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-100 hover:border-slate-200 transition-all text-xs font-black text-slate-700 min-w-[150px] group"
+                        className="flex items-center gap-2 bg-slate-50 p-3 rounded-2xl border border-[#E6E8EC] hover:border-[#E6E8EC] transition-all text-xs font-black text-slate-700 min-w-[150px] group"
                     >
                         <Smartphone size={18} className="text-slate-400 group-hover:text-primary transition-colors" />
                         <span className="truncate">
@@ -838,8 +992,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
                     <button
                         onClick={handleSave}
-                        disabled={isSaving || (!isToday && !isChief)}
-                        className="flex items-center gap-2 bg-primary text-white px-6 py-3 rounded-2xl font-black text-sm hover:bg-primary-600 transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:grayscale"
+                        disabled={isSaving || !canEdit}
+                        className="flex items-center gap-2 bg-primary text-white px-6 py-3 rounded-2xl font-black text-sm hover:bg-primary-600 transition-all shadow-sm disabled:opacity-50 disabled:grayscale"
                     >
                         {isSaving ? <History className="animate-spin" /> : <Save size={18} />}
                         Salvar Relatório
@@ -865,9 +1019,46 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             </div>
 
             {(!isToday && !isChief) && (
-                <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl flex items-center gap-3 text-orange-700 font-bold text-sm">
-                    <AlertCircle size={20} />
-                    Modo Leitura: Edições só são permitidas no dia vigente.
+                <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-200 ${
+                    isRetroactive
+                        ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-sm'
+                        : 'bg-orange-50 border-orange-200 text-orange-800'
+                }`}>
+                    <div className="flex items-center gap-3">
+                        {isRetroactive ? (
+                            <div className="p-2 bg-amber-500 text-white rounded-xl shrink-0">
+                                <Clock size={20} />
+                            </div>
+                        ) : (
+                            <div className="p-2 bg-orange-500 text-white rounded-xl shrink-0">
+                                <AlertCircle size={20} />
+                            </div>
+                        )}
+                        <div>
+                            <p className="font-black text-sm">
+                                {isRetroactive
+                                    ? `Modo de Lançamento Retroativo Ativo (${formatDateBR(date)})`
+                                    : `Modo Leitura: Data Anterior (${formatDateBR(date)})`}
+                            </p>
+                            <p className="text-xs font-semibold opacity-90 mt-0.5">
+                                {isRetroactive
+                                    ? 'A edição está liberada. Você pode selecionar equipe, motorista, adicionar atividades e faltas para esta data. Salve o relatório ao concluir.'
+                                    : 'Esqueceu de preencher o relatório no dia anterior? Clique na opção ao lado para habilitar o preenchimento retroativo.'}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setIsRetroactive(!isRetroactive)}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shrink-0 ${
+                            isRetroactive
+                                ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-sm'
+                                : 'bg-primary hover:bg-primary-600 text-white shadow-md shadow-primary/20 hover:scale-[1.02] active:scale-[0.98]'
+                        }`}
+                    >
+                        {isRetroactive ? <Lock size={15} /> : <Unlock size={15} />}
+                        {isRetroactive ? 'Bloquear Edição' : 'Habilitar Lançamento Retroativo'}
+                    </button>
                 </div>
             )}
 
@@ -896,7 +1087,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Atividades */}
                 <div className="lg:col-span-2 space-y-6">
-                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <div className="bg-white p-6 rounded-[20px] border border-[#E6E8EC] shadow-sm">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
                             <Plus size={16} className="text-primary" /> Atividades Realizadas
                         </h3>
@@ -918,7 +1109,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                         }}
                                         className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-4 group cursor-pointer select-none relative active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-primary/20 ${isSelected
                                             ? 'bg-orange-500 border-orange-600 shadow-md'
-                                            : 'bg-slate-50 border-slate-100 hover:border-primary hover:bg-primary/5 hover:text-primary'
+                                            : 'bg-slate-50 border-[#E6E8EC] hover:border-primary hover:bg-primary/5 hover:text-primary'
                                             }`}
                                     >
                                         <span className={`text-[11px] font-black uppercase leading-tight text-left ${isSelected ? 'text-white' : 'text-slate-600 group-hover:text-primary'}`}>
@@ -926,7 +1117,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                         </span>
                                         <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform ${isSelected
                                             ? 'bg-white/20 border border-white/40' // Orange state icon bg
-                                            : 'bg-white border border-slate-200 group-hover:border-primary'
+                                            : 'bg-white border border-[#E6E8EC] group-hover:border-primary'
                                             }`}>
                                             {isSelected
                                                 ? <CheckCircle size={14} className="text-white" /> // Show checkmark if selected
@@ -952,7 +1143,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                     const techNames = activity.technicianIds?.map(tid => users.find(u => u.id === tid)?.name || 'Desconhecido').join(', ') || 'Equipe Completa';
 
                                     return (
-                                        <div key={`edit-${index}`} className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 ring-2 ring-primary/10">
+                                        <div key={`edit-${index}`} className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-[#E6E8EC] ring-2 ring-primary/10">
                                             <div className="flex-1">
                                                 <div className="flex items-center justify-between mb-1">
                                                     <div className="flex items-center gap-2">
@@ -972,7 +1163,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                                         type="number"
                                                         value={activity.quantity}
                                                         onChange={e => handleQuantityChange(index, parseInt(e.target.value))}
-                                                        className="w-16 p-1 text-center font-black text-slate-700 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-primary"
+                                                        className="w-16 p-1 text-center font-black text-slate-700 bg-white border border-[#E6E8EC] rounded-lg text-xs outline-none focus:border-primary"
                                                     />
                                                 </div>
                                             </div>
@@ -983,7 +1174,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
                             {/* Mostrar atividades de OUTROS relatórios do mesmo dia */}
                             {allDayReports.filter(r => r.id !== report?.id).length > 0 && (
-                                <div className="mt-8 space-y-3 pt-6 border-t border-slate-100">
+                                <div className="mt-8 space-y-3 pt-6 border-t border-[#E6E8EC]">
                                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Outros Lançamentos do Dia</h4>
                                     {allDayReports
                                         .filter(r => r.id !== report?.id)
@@ -993,24 +1184,23 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                             const sourceName = team ? team.name : (reporter?.name || 'Desconhecido');
 
                                             return (
-                                                <div key={`report-${otherReport.id}`} className="bg-slate-50/50 rounded-2xl border border-slate-100 overflow-hidden">
+                                                <div key={`report-${otherReport.id}`} className="bg-[#FAFbfc] rounded-2xl border border-[#E6E8EC] overflow-hidden">
                                                     {/* Report Header with Edit Button */}
-                                                    <div className="flex items-center justify-between p-3 bg-slate-100/50 border-b border-slate-100">
+                                                    <div className="flex items-center justify-between p-3 bg-slate-100/50 border-b border-[#E6E8EC]">
                                                         <div className="flex items-center gap-2">
                                                             <span className="text-[10px] font-black px-2 py-0.5 bg-slate-200 text-slate-500 rounded-full uppercase">{sourceName}</span>
-                                                            <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1 ${
-                                                                otherReport.shift === 'Noturno'
-                                                                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
-                                                                    : 'bg-amber-100 text-amber-700 border border-amber-200'
-                                                            }`}>
-                                                                {otherReport.shift === 'Noturno' ? <Moon size={11} /> : <Sun size={11} />}
+                                                            <span className={`inline-flex items-center gap-1 text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${otherReport.shift === 'Noturno'
+                                                                ? 'bg-indigo-100 text-indigo-700'
+                                                                : 'bg-amber-100 text-amber-700'
+                                                                }`}>
+                                                                {otherReport.shift === 'Noturno' ? <Moon size={10} /> : <Sun size={10} />}
                                                                 {otherReport.shift || 'Diurno'}
                                                             </span>
                                                             {otherReport.route && (
                                                                 <span className="text-[9px] font-bold text-slate-400 uppercase">Rota: {otherReport.route}</span>
                                                             )}
                                                         </div>
-                                                        {(isToday || isChief) && (
+                                                        {canEdit && (
                                                             <button
                                                                 onClick={() => handleEditReport(otherReport)}
                                                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-wide transition-all"
@@ -1062,7 +1252,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
                 {/* Equipe e Ausências */}
                 <div className="space-y-6">
-                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <div className="bg-white p-6 rounded-[20px] border border-[#E6E8EC] shadow-sm">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
                             Membros da Equipe
                         </h3>
@@ -1073,14 +1263,21 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                             ) : teamMembers.map(member => {
                                 const absence = absences.find(a => a.employeeId === member.id);
                                 return (
-                                    <div key={member.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                    <div key={member.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-[#E6E8EC]">
                                         <div className="flex items-center gap-3">
                                             <img src={member.avatar} alt="" className="w-8 h-8 rounded-xl" />
                                             <div>
                                                 <p className="text-xs font-black text-slate-700 leading-none">{member.name}</p>
-                                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">
-                                                    {member.role.replace('PARCEIRO_', '')}
-                                                </p>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase">
+                                                        {member.role.replace('PARCEIRO_', '')}
+                                                    </p>
+                                                    {report?.driverId === member.id && (
+                                                        <span className="text-[8px] font-black uppercase px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">
+                                                            Motorista
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
 
@@ -1101,8 +1298,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                             <div className="flex items-center gap-1">
                                                 <button
                                                     onClick={() => handleAddAbsence(member.id, 'Falta Injustificada')}
-                                                    disabled={!isToday && !isChief}
-                                                    className="p-1.5 hover:bg-red-50 text-slate-300 hover:text-red-500 rounded-lg transition-colors"
+                                                    disabled={!canEdit}
+                                                    className="p-1.5 hover:bg-red-50 text-slate-300 hover:text-red-500 rounded-lg transition-colors disabled:opacity-40"
                                                     title="Marcar Falta"
                                                 >
                                                     <X size={16} />
@@ -1115,24 +1312,24 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                         </div>
                     </div>
 
-                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <div className="bg-white p-6 rounded-[20px] border border-[#E6E8EC] shadow-sm">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rota</h3>
                         <input
                             type="text"
                             value={report?.route || ''}
                             onChange={e => setReport(prev => ({ ...prev, route: e.target.value }))}
-                            disabled={!isToday && !isChief}
+                            disabled={!canEdit}
                             placeholder="Digite a rota manualmente..."
-                            className="w-full p-4 mb-6 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20"
+                            className="w-full p-4 mb-6 bg-slate-50 border border-[#E6E8EC] rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
                         />
 
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Observação</h3>
                         <textarea
                             value={report?.notes || ''}
                             onChange={e => setReport(prev => ({ ...prev, notes: e.target.value }))}
-                            disabled={!isToday && !isChief}
+                            disabled={!canEdit}
                             placeholder="Observações adicionais..."
-                            className="w-full h-32 p-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                            className="w-full h-32 p-4 bg-slate-50 border border-[#E6E8EC] rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20 resize-none disabled:opacity-50"
                         />
                     </div>
                 </div>
@@ -1141,17 +1338,17 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             {/* Modal de Seleção de Técnicos */}
             {isTechModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-200">
-                        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                    <div className="bg-white rounded-[20px] w-full max-w-md overflow-hidden shadow-2xl border border-[#E6E8EC] animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
                             <div>
-                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter">Selecionar Técnicos</h3>
+                                <h3 className="text-lg font-bold font-display text-[#141518] tracking-tight">Selecionar Técnicos</h3>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Monte sua equipe do dia</p>
                             </div>
                             <button onClick={() => setIsTechModalOpen(false)} className="p-2 hover:bg-white rounded-xl text-slate-400 transition-colors shadow-sm">
                                 <X size={20} />
                             </button>
                         </div>
-                        <div className="px-6 py-4 border-b border-slate-100 bg-white">
+                        <div className="px-6 py-4 border-b border-[#E6E8EC] bg-white">
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                                 <input
@@ -1159,7 +1356,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                     placeholder="Pesquisar por nome..."
                                     value={techSearch}
                                     onChange={(e) => setTechSearch(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20"
+                                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-[#E6E8EC] rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20"
                                 />
                                 {techSearch && (
                                     <button
@@ -1191,7 +1388,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                         onClick={() => handleToggleTechnician(user.id)}
                                         className={`flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer ${selectedTechnicianIds.includes(user.id)
                                             ? 'bg-primary/5 border-primary shadow-sm'
-                                            : 'bg-slate-50 border-slate-100 hover:border-slate-200'
+                                            : 'bg-slate-50 border-[#E6E8EC] hover:border-[#E6E8EC]'
                                             }`}
                                     >
                                         <img src={user.avatar} className="w-8 h-8 rounded-xl" alt="" />
@@ -1203,14 +1400,14 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                                 {user.role.replace('PARCEIRO_', '')}
                                             </p>
                                         </div>
-                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${selectedTechnicianIds.includes(user.id) ? 'bg-primary border-primary' : 'border-slate-200'
+                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${selectedTechnicianIds.includes(user.id) ? 'bg-primary border-primary' : 'border-[#E6E8EC]'
                                             }`}>
                                             {selectedTechnicianIds.includes(user.id) && <Plus size={12} className="text-white rotate-45" />}
                                         </div>
                                     </div>
                                 ))}
                         </div>
-                        <div className="p-6 bg-slate-50 border-t border-slate-100">
+                        <div className="p-6 bg-slate-50 border-t border-[#E6E8EC]">
                             <button
                                 onClick={() => { setIsTechModalOpen(false); setTechSearch(''); }}
                                 className="w-full bg-slate-800 text-white py-4 rounded-2xl font-black text-sm hover:bg-slate-900 transition-all shadow-lg"
@@ -1224,10 +1421,10 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             {/* Modal de Seleção de Veículo */}
             {isVehicleModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-200">
-                        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                    <div className="bg-white rounded-[20px] w-full max-w-md overflow-hidden shadow-2xl border border-[#E6E8EC] animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
                             <div>
-                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter">Selecionar Veículo</h3>
+                                <h3 className="text-lg font-bold font-display text-[#141518] tracking-tight">Selecionar Veículo</h3>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Escolha o veículo utilizado hoje</p>
                             </div>
                             <button onClick={() => { setIsVehicleModalOpen(false); setVehicleSearch(''); }} className="p-2 hover:bg-white rounded-xl text-slate-400 transition-colors shadow-sm">
@@ -1235,7 +1432,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                             </button>
                         </div>
 
-                        <div className="px-6 py-4 border-b border-slate-100 bg-white">
+                        <div className="px-6 py-4 border-b border-[#E6E8EC] bg-white">
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                                 <input
@@ -1243,7 +1440,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                     placeholder="Pesquisar por tag, modelo ou placa..."
                                     value={vehicleSearch}
                                     onChange={(e) => setVehicleSearch(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20"
+                                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-[#E6E8EC] rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20"
                                 />
                                 {vehicleSearch && (
                                     <button
@@ -1274,10 +1471,10 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                         }}
                                         className={`flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer ${report?.carPlate === vehicle.plate
                                             ? 'bg-primary/5 border-primary shadow-sm'
-                                            : 'bg-slate-50 border-slate-100 hover:border-slate-200'
+                                            : 'bg-slate-50 border-[#E6E8EC] hover:border-[#E6E8EC]'
                                             }`}
                                     >
-                                        <div className="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 shadow-sm">
+                                        <div className="w-10 h-10 rounded-xl bg-white border border-[#E6E8EC] flex items-center justify-center text-slate-400 shadow-sm">
                                             <Car size={20} />
                                         </div>
                                         <div className="flex-1">
@@ -1302,10 +1499,10 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             {/* Modal de Seleção de OPEC */}
             {isOpecModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-200">
-                        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                    <div className="bg-white rounded-[20px] w-full max-w-md overflow-hidden shadow-2xl border border-[#E6E8EC] animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
                             <div>
-                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter">Selecionar OPEC</h3>
+                                <h3 className="text-lg font-bold font-display text-[#141518] tracking-tight">Selecionar OPEC</h3>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Escolha o dispositivo OPEC utilizado</p>
                             </div>
                             <button onClick={() => { setIsOpecModalOpen(false); setOpecSearch(''); }} className="p-2 hover:bg-white rounded-xl text-slate-400 transition-colors shadow-sm">
@@ -1313,7 +1510,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                             </button>
                         </div>
 
-                        <div className="px-6 py-4 border-b border-slate-100 bg-white">
+                        <div className="px-6 py-4 border-b border-[#E6E8EC] bg-white">
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                                 <input
@@ -1321,7 +1518,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                     placeholder="Pesquisar por código ou modelo..."
                                     value={opecSearch}
                                     onChange={(e) => setOpecSearch(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20"
+                                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-[#E6E8EC] rounded-2xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/20"
                                 />
                                 {opecSearch && (
                                     <button
@@ -1351,10 +1548,10 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                         }}
                                         className={`flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer ${report?.opecId === device.id
                                             ? 'bg-primary/5 border-primary shadow-sm'
-                                            : 'bg-slate-50 border-slate-100 hover:border-slate-200'
+                                            : 'bg-slate-50 border-[#E6E8EC] hover:border-[#E6E8EC]'
                                             }`}
                                     >
-                                        <div className="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 shadow-sm">
+                                        <div className="w-10 h-10 rounded-xl bg-white border border-[#E6E8EC] flex items-center justify-center text-slate-400 shadow-sm">
                                             <Smartphone size={20} />
                                         </div>
                                         <div className="flex-1">
@@ -1377,10 +1574,10 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             {/* Modal de Seleção de Mês para Exportação */}
             {isMonthModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-200">
-                        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                    <div className="bg-white rounded-[20px] w-full max-w-md overflow-hidden shadow-2xl border border-[#E6E8EC] animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
                             <div>
-                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter">Exportar Relatório Mensal</h3>
+                                <h3 className="text-lg font-bold font-display text-[#141518] tracking-tight">Exportar Relatório Mensal</h3>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Consolidado de todos os dias do mês</p>
                             </div>
                             <button onClick={() => setIsMonthModalOpen(false)} className="p-2 hover:bg-white rounded-xl text-slate-400 transition-colors shadow-sm">
@@ -1395,7 +1592,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                     <select
                                         value={selectedMonth}
                                         onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
+                                        className="w-full p-3 bg-slate-50 border border-[#E6E8EC] rounded-2xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
                                     >
                                         <option value={1}>Janeiro</option>
                                         <option value={2}>Fevereiro</option>
@@ -1416,7 +1613,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                     <select
                                         value={selectedYear}
                                         onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
+                                        className="w-full p-3 bg-slate-50 border border-[#E6E8EC] rounded-2xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
                                     >
                                         {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (
                                             <option key={year} value={year}>{year}</option>

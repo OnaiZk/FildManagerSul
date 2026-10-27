@@ -6,7 +6,6 @@ export const ACTIVITY_TYPES = [
     "Supressão de abrigos",
     "Curva de totens",
     "Instalação de totens",
-    "Fundação de totens",
     "Supressão de totens",
     "Painéis digitais",
     "Painéis estáticos",
@@ -25,14 +24,12 @@ export const ACTIVITY_TYPES = [
     "Corbucci corretiva",
     "Vidros",
     "Postes",
-    "Pmv",
-    "Qmc",
     "Postagens",
     "Eventos",
     "Slack",
     "Vistorias",
     "Cartas",
     "Fiscalização",
-    "Area de risco",
+    "Interno",
     "Outros"
 ];

@@ -204,7 +204,7 @@ export const ReportsView: React.FC<Props> = ({ tasks, users, currentUser }) => {
                                     cursor={{ fill: '#f8fafc' }}
                                     contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                                 />
-                                <Bar dataKey="completed" fill="#FA3A00" radius={[0, 8, 8, 0]} barSize={20}>
+                                <Bar dataKey="completed" fill="#FF4F00" radius={[0, 8, 8, 0]} barSize={20}>
                                     {techProductivity.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fillOpacity={1 - index * 0.15} />
                                     ))}

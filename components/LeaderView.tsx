@@ -35,7 +35,7 @@ const LeaderView: React.FC<Props> = ({ leader, tasks, users, onCreateTask }) => 
   }), [tasks]);
 
   const chartData = [
-    { name: 'Pendentes', value: stats.pending, color: '#FA3A00' },
+    { name: 'Pendentes', value: stats.pending, color: '#FF4F00' },
     { name: 'Em Curso', value: stats.inProgress, color: '#3b82f6' },
     { name: 'Concluídas', value: stats.completed, color: '#22c55e' },
     { name: 'Bloqueadas', value: stats.blocked, color: '#94a3b8' },

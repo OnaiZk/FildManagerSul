@@ -1,14 +1,15 @@
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
+export default defineConfig(() => {
   return {
+    // Segurança: apenas variáveis iniciadas com VITE_ podem ser lidas pelo cliente.
+    envPrefix: 'VITE_',
     server: {
       port: 3001,
-      host: '0.0.0.0',
+      host: 'localhost', // Evita expor servidor de desenvolvimento na rede local por padrão
       hmr: {
         overlay: false,      // Disable error overlay that can cause reloads
         timeout: 60000,      // Increase WebSocket timeout
@@ -50,6 +51,7 @@ export default defineConfig(({ mode }) => {
       })
     ],
     build: {
+      sourcemap: false, // Impede exposição do código-fonte original em produção
       rollupOptions: {
         output: {
           manualChunks: {

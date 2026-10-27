@@ -1,11 +1,11 @@
 
 import React, { useMemo, useState } from 'react';
-import { User, Task, TaskStatus, Team, UserRole, AssetType, ServiceType, DailyReport } from '../types';
+import { User, Task, TaskStatus, Team, UserRole, AssetType, ServiceType } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { MapPin, TrendingUp, Shield, Activity, Download, Building2, Plus, Clock, Box } from 'lucide-react';
 import SimpleModal from './SimpleModal';
 import SearchableSelect from './SearchableSelect';
-import { getAssets, getDailyReports } from '../api/fieldManagerApi';
+import { getAssets } from '../api/fieldManagerApi';
 
 import EvidenceAuditModal from './EvidenceAuditModal';
 
@@ -19,17 +19,12 @@ interface Props {
 }
 
 const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }) => {
+  const [selectedCompany, setSelectedCompany] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [assets, setAssets] = useState<any[]>([]);
   const [isAssetLoading, setIsAssetLoading] = useState(false);
 
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
-  const [todayReports, setTodayReports] = useState<DailyReport[]>([]);
-
-  React.useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    getDailyReports(chief.companyId, undefined, today).then(setTodayReports);
-  }, [chief.companyId]);
 
   // Form State
   const [assetType, setAssetType] = useState<AssetType>(AssetType.BUS_SHELTER);
@@ -59,7 +54,10 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
     }
   };
 
-  const filteredTasks = tasks;
+  const filteredTasks = useMemo(() => {
+    if (selectedCompany === 'all') return tasks;
+    return tasks.filter(t => t.companyId === selectedCompany);
+  }, [tasks, selectedCompany]);
 
   const slaRate = useMemo(() => {
     if (filteredTasks.length === 0) return 0;
@@ -110,30 +108,36 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
     document.body.removeChild(link);
   };
 
-  const isInternalChief = true;
+  // Definição de todas as empresas parceiras
+  const allPartnerCompanies = [
+    { id: 'internal', name: 'Eletromidia (Interno)', logo: '/assets/logo_icon.png', initials: 'EM', color: '#FF4F00' },
+    { id: 'alvares', name: 'Alvares Engenharia', logo: '/assets/logo_alvares.png', initials: 'AL', color: '#002c4d' },
+    { id: 'bassi', name: 'Bassi', logo: '/assets/logo_bassi.png', initials: 'BA', color: '#DC2626' },
+    { id: 'gf1', name: 'GF1', logo: null, initials: 'GF1', color: '#16A34A' },
+    { id: 'afn_nogueira', name: 'AFN Nogueira', logo: null, initials: 'AFN', color: '#7C3AED' },
+  ];
 
-  const teamActivities = useMemo(() => {
-    return teams.map(team => {
-      const report = todayReports.find(r => r.teamId === team.id);
-      const activities = report?.activities || [];
-      const totalItems = activities.reduce((sum, act) => sum + act.quantity, 0);
-      
-      const topActivities = activities
-        .map(a => `${a.quantity}x ${a.activityType}`)
-        .slice(0, 2)
-        .join(', ');
+  const isInternalChief = chief.role === UserRole.CHEFE;
 
-      const leader = users.find(u => u.id === team.leaderId);
+  const vendorMetrics = useMemo(() => {
+    const displayedCompanies = isInternalChief
+      ? allPartnerCompanies
+      : allPartnerCompanies.filter(company => company.id === chief.companyId);
 
+    return displayedCompanies.map(company => {
+      const companyTasks = tasks.filter(t => t.companyId === company.id);
+      const completed = companyTasks.filter(t => t.status === TaskStatus.COMPLETED).length;
       return {
-        id: team.id,
-        name: team.name,
-        leaderName: leader?.name || 'Sem Líder',
-        totalItems,
-        summary: topActivities || 'Nenhuma atividade registrada ainda'
+        id: company.id,
+        name: company.name,
+        logo: company.logo,
+        initials: company.initials,
+        color: company.color,
+        productivity: companyTasks.length > 0 ? (completed / companyTasks.length) * 100 : 0,
+        total: companyTasks.length
       };
     });
-  }, [teams, todayReports, users]);
+  }, [tasks, isInternalChief, chief.companyId]);
 
   const availableTechnicians = useMemo(() => {
     if (isInternalChief) {
@@ -180,14 +184,25 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
 
   return (
     <div className="space-y-6 md:space-y-8 pb-12">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-6 md:p-8 rounded-2xl md:rounded-3xl border shadow-xl bg-white border-slate-200">
+      <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-6 md:p-8 rounded-2xl md:rounded-3xl border shadow-xl ${isInternalChief ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800 text-white'}`}>
         <div>
-          <h3 className="text-xl md:text-2xl font-black">Dashboard Executivo</h3>
-          <p className="text-slate-500 font-bold text-[10px] md:text-sm mt-1 uppercase tracking-widest">
-            Visão Geral da Operação Sul
+          <h3 className="text-xl md:text-2xl font-black">{isInternalChief ? 'Dashboard Executivo' : 'Portal do Parceiro'}</h3>
+          <p className={`${isInternalChief ? 'text-slate-500' : 'text-slate-400'} font-bold text-[10px] md:text-sm mt-1 uppercase tracking-widest`}>
+            {isInternalChief ? 'Vendor Management & Global SLA' : `Contrato: ${chief.companyName}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          {isInternalChief && (
+            <select
+              className="flex-1 lg:flex-none bg-slate-50 border border-slate-200 text-xs md:text-sm font-black px-4 md:px-5 py-2.5 md:py-3 rounded-xl md:rounded-2xl outline-none focus:ring-2 focus:ring-orange-500/20 text-slate-800"
+              value={selectedCompany}
+              onChange={(e) => setSelectedCompany(e.target.value)}
+            >
+              <option value="all">Todos os Fornecedores</option>
+              <option value="internal">Somente Interno</option>
+              <option value="alpha">Alpha Services</option>
+            </select>
+          )}
 
           {onCreateTask && (
             <button
@@ -226,15 +241,15 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
               <AreaChart data={productivityData}>
                 <defs>
                   <linearGradient id="colorOrange" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#FA3A00" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#FA3A00" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#FF4F00" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#FF4F00" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 800, fill: '#94a3b8' }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 800, fill: '#94a3b8' }} />
                 <Tooltip />
-                <Area type="monotone" dataKey="value" stroke="#FA3A00" strokeWidth={4} fillOpacity={1} fill="url(#colorOrange)" />
+                <Area type="monotone" dataKey="value" stroke="#FF4F00" strokeWidth={4} fillOpacity={1} fill="url(#colorOrange)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -242,29 +257,42 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
 
         <div className="bg-white p-6 md:p-8 rounded-2xl md:rounded-3xl border border-slate-200 shadow-sm flex flex-col">
           <h4 className="font-black text-slate-800 text-sm md:text-lg mb-6 md:mb-8 uppercase tracking-widest text-[10px] md:text-xs border-l-4 border-primary pl-4">
-            Atividades das Equipes (Hoje)
+            {isInternalChief ? 'Performance por Parceiro' : 'Performance da Equipe'}
           </h4>
-          <div className="space-y-4 md:space-y-6 overflow-y-auto pr-2 flex-1">
-            {teamActivities.map((team, idx) => (
-              <div key={idx} className="flex items-center gap-3 md:gap-5 group p-4 border border-slate-100 rounded-2xl hover:border-primary/30 hover:bg-primary/5 transition-all">
-                <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-100 text-slate-500 rounded-xl md:rounded-2xl flex items-center justify-center font-black transition-all text-xs md:text-base group-hover:bg-primary group-hover:text-white">
-                  {team.name.substring(0, 2).toUpperCase()}
+          <div className="space-y-4 md:space-y-6 overflow-y-auto pr-2">
+            {vendorMetrics.map((vm, idx) => (
+              <div key={idx} className="flex items-center gap-3 md:gap-5 group">
+                <div
+                  className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center font-black transition-all text-xs md:text-base overflow-hidden shadow-sm"
+                  style={{ backgroundColor: vm.color }}
+                >
+                  {vm.logo ? (
+                    <img
+                      src={vm.logo}
+                      alt={vm.name}
+                      className={`w-full h-full object-contain p-1.5 ${vm.id === 'internal' ? 'brightness-0' : ''}`}
+                      onError={(e) => {
+                        // Fallback para iniciais se a imagem falhar
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        target.parentElement!.innerHTML = `<span class="text-xs md:text-sm font-black text-white">${vm.initials}</span>`;
+                      }}
+                    />
+                  ) : (
+                    <span className="text-xs md:text-sm font-black text-white">{vm.initials}</span>
+                  )}
                 </div>
                 <div className="flex-1">
-                  <div className="flex justify-between items-center mb-1">
-                    <p className="text-xs md:text-sm font-black text-slate-800">{team.name}</p>
-                    <span className="text-[10px] md:text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                      {team.totalItems} Lançamentos
-                    </span>
+                  <div className="flex justify-between items-center mb-1 md:mb-1.5">
+                    <p className="text-xs md:text-sm font-black text-slate-700">{vm.name}</p>
+                    <p className="text-[10px] md:text-xs font-black text-primary">{vm.productivity.toFixed(1)}%</p>
                   </div>
-                  <p className="text-[10px] md:text-xs font-bold text-slate-400 mb-1">Líder: {team.leaderName}</p>
-                  <p className="text-[10px] md:text-xs font-medium text-slate-500 line-clamp-1">{team.summary}</p>
+                  <div className="h-1.5 md:h-2 bg-slate-50 rounded-full overflow-hidden">
+                    <div className="h-full bg-primary transition-all duration-1000" style={{ width: `${vm.productivity}%` }} />
+                  </div>
                 </div>
               </div>
             ))}
-            {teamActivities.length === 0 && (
-              <div className="text-center text-slate-400 py-8 text-sm font-bold">Nenhuma equipe cadastrada</div>
-            )}
           </div>
           <button
             onClick={() => setIsAuditModalOpen(true)}

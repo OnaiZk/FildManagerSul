@@ -190,9 +190,8 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
             setVehKm('');
             setVehLastMaint('');
             loadAllData();
-        } catch (err: any) {
+        } catch (err) {
             console.error('Error creating vehicle:', err);
-            alert(`Erro ao cadastrar veículo: ${err?.message || err?.code || JSON.stringify(err)}`);
         } finally {
             setSubmitting(false);
         }
@@ -310,7 +309,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                 <div className="flex gap-3">
                     <button
                         onClick={generateReport}
-                        className="flex items-center justify-center gap-3 px-6 py-4 bg-white border border-slate-200 text-slate-600 rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-sm hover:bg-slate-50 transition-all"
+                        className="flex items-center justify-center gap-3 px-6 py-4 bg-white border border-[#E6E8EC] text-slate-600 rounded-[20px] font-black text-xs uppercase tracking-[0.2em] shadow-sm hover:bg-slate-50 transition-all"
                     >
                         <FileText size={18} />
                         Relatório
@@ -319,7 +318,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                     {activeTab === 'registros' ? (
                         <button
                             onClick={() => setIsLogModalOpen(true)}
-                            className="flex items-center justify-center gap-3 px-8 py-4 bg-primary text-white rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-primary/20 hover:scale-105 transition-all group"
+                            className="flex items-center justify-center gap-3 px-8 py-4 bg-primary text-white rounded-[20px] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-primary/20 hover:scale-105 transition-all group"
                         >
                             <ArrowRightLeft size={18} className="group-hover:rotate-180 transition-transform duration-500" />
                             Registrar Saída
@@ -328,14 +327,14 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                         <div className="flex gap-3">
                             <button
                                 onClick={() => setIsImportModalOpen(true)}
-                                className="flex items-center justify-center gap-3 px-6 py-4 bg-white border border-slate-200 text-slate-600 rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-sm hover:bg-slate-50 transition-all"
+                                className="flex items-center justify-center gap-3 px-6 py-4 bg-white border border-[#E6E8EC] text-slate-600 rounded-[20px] font-black text-xs uppercase tracking-[0.2em] shadow-sm hover:bg-slate-50 transition-all"
                             >
                                 <Upload size={18} />
                                 Importar
                             </button>
                             <button
                                 onClick={() => setIsVehicleModalOpen(true)}
-                                className="flex items-center justify-center gap-3 px-8 py-4 bg-primary text-white rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-primary/20 hover:scale-105 transition-all group"
+                                className="flex items-center justify-center gap-3 px-8 py-4 bg-primary text-white rounded-[20px] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-primary/20 hover:scale-105 transition-all group"
                             >
                                 <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" />
                                 Novo Veículo
@@ -343,7 +342,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                             {selectedVehicleIds.length > 0 && (
                                 <button
                                     onClick={handleBulkDeleteVehicles}
-                                    className="flex items-center justify-center gap-3 px-8 py-4 bg-red-600 text-white rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-red-200 hover:scale-105 transition-all group animate-in zoom-in-95"
+                                    className="flex items-center justify-center gap-3 px-8 py-4 bg-red-600 text-white rounded-[20px] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-red-200 hover:scale-105 transition-all group animate-in zoom-in-95"
                                 >
                                     <Trash2 size={18} />
                                     Excluir Selecionados ({selectedVehicleIds.length})
@@ -355,7 +354,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-2 p-1 bg-slate-100 rounded-[2rem] w-fit print:hidden">
+            <div className="flex gap-2 p-1 bg-slate-100 rounded-[18px] w-fit print:hidden">
                 <button
                     onClick={() => setActiveTab('registros')}
                     className={`px-8 py-3 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'registros' ? 'bg-white text-primary shadow-sm' : 'text-slate-400 hover:text-slate-600'
@@ -381,12 +380,12 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                             placeholder={activeTab === 'registros' ? "Pesquisar logs..." : "Pesquisar frota..."}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-16 pr-8 py-6 bg-white border border-slate-100 rounded-[2rem] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all shadow-sm"
+                            className="w-full pl-16 pr-8 py-6 bg-white border border-[#E6E8EC] rounded-[18px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all shadow-sm"
                         />
                     </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-4">
+                <div className="bg-white p-6 rounded-[18px] border border-[#E6E8EC] shadow-sm flex items-center gap-4">
                     <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-600">
                         <ArrowRightLeft size={24} />
                     </div>
@@ -396,7 +395,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                     </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-4">
+                <div className="bg-white p-6 rounded-[18px] border border-[#E6E8EC] shadow-sm flex items-center gap-4">
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${stats.maintenance > 0 ? 'bg-red-50 text-red-600 animate-pulse' : 'bg-green-50 text-green-600'}`}>
                         <AlertCircle size={24} />
                     </div>
@@ -407,7 +406,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                 </div>
             </div>
 
-            <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/50 overflow-hidden print:shadow-none print:border-none">
+            <div className="bg-white rounded-[20px] border border-[#E6E8EC] shadow-sm overflow-hidden print:shadow-none print:border-none">
                 {activeTab === 'registros' ? (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
@@ -420,7 +419,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                     <th className="px-8 py-6 text-right print:hidden"></th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody className="divide-y divide-[#EEF0F3]">
                                 {loading ? (
                                     <tr><td colSpan={5} className="py-20 text-center"><Loader2 className="w-10 h-10 text-primary animate-spin mx-auto" /></td></tr>
                                 ) : filteredLogs.length === 0 ? (
@@ -429,7 +428,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                     filteredLogs.map((log) => {
                                         const kmDriven = log.endKm && log.startKm ? log.endKm - log.startKm : null;
                                         return (
-                                            <tr key={log.id} className="hover:bg-slate-50/50 transition-colors group">
+                                            <tr key={log.id} className="hover:bg-[#FAFbfc] transition-colors group">
                                                 <td className="px-8 py-6">
                                                     <div className="flex items-center gap-4">
                                                         <div className="w-10 h-10 bg-primary-50 rounded-2xl flex items-center justify-center text-primary font-black text-xs uppercase">
@@ -448,7 +447,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
 
                                                 <td className="px-8 py-6">
                                                     <p className="text-sm font-black text-slate-900 tracking-tight uppercase">{log.model}</p>
-                                                    <p className="text-[10px] font-bold text-slate-400 tracking-wider font-mono">{log.plate}</p>
+                                                    <p className="text-[10px] font-bold text-slate-400 tracking-wider font-mono-code tabular-nums">{log.plate}</p>
                                                 </td>
                                                 <td className="px-8 py-6">
                                                     {log.isActive ? (
@@ -515,13 +514,13 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                     <th className="px-8 py-6 text-right print:hidden"></th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-50">
+                            <tbody className="divide-y divide-[#EEF0F3]">
                                 {filteredVehicles.map(v => {
                                     const kmSinceLast = v.currentKm - v.lastMaintenanceKm;
                                     const progress = Math.min(100, (kmSinceLast / 10000) * 100);
                                     const isAlert = kmSinceLast >= 10000;
                                     return (
-                                        <tr key={v.id} className={`hover:bg-slate-50/50 transition-colors group ${selectedVehicleIds.includes(v.id) ? 'bg-primary/5' : ''}`}>
+                                        <tr key={v.id} className={`hover:bg-[#FAFbfc] transition-colors group ${selectedVehicleIds.includes(v.id) ? 'bg-primary/5' : ''}`}>
                                             <td className="px-8 py-6">
                                                 <input
                                                     type="checkbox"
@@ -540,7 +539,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                                     </div>
                                                     <div>
                                                         <p className="text-sm font-black text-slate-900 tracking-tight uppercase">{v.brand} {v.model}</p>
-                                                        <p className="text-[10px] font-bold text-slate-400 tracking-wider font-mono uppercase">{v.plate}</p>
+                                                        <p className="text-[10px] font-bold text-slate-400 tracking-wider font-mono-code tabular-nums uppercase">{v.plate}</p>
                                                     </div>
                                                 </div>
                                             </td>
@@ -617,7 +616,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
             {/* MODAL: SAÍDA (CHECKOUT) */}
             {isLogModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl animate-in zoom-in-95 fade-in duration-300 overflow-hidden max-h-[90vh] flex flex-col">
+                    <div className="bg-white w-full max-w-lg rounded-[20px] shadow-2xl animate-in zoom-in-95 fade-in duration-300 overflow-hidden max-h-[90vh] flex flex-col">
                         <div className="px-10 py-10 bg-primary/5 border-b border-primary/10 flex items-center justify-between shrink-0">
                             <div>
                                 <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase mb-1">Registrar Saída</h3>
@@ -695,7 +694,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                             key={collab}
                                             type="button"
                                             onClick={() => setAdditionalCollabs(prev => prev.filter(c => c !== collab))}
-                                            className="px-4 py-2 bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-all flex items-center gap-2 group"
+                                            className="px-4 py-2 bg-slate-100 text-slate-600 border border-[#E6E8EC] rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-all flex items-center gap-2 group"
                                         >
                                             {collab}
                                             <X size={12} className="group-hover:scale-110 transition-transform" />
@@ -734,7 +733,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                                 className="fixed inset-0 z-[55]"
                                                 onClick={() => setIsCollabListOpen(false)}
                                             />
-                                            <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-xl z-[60] max-h-60 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
+                                            <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-[#E6E8EC] rounded-2xl shadow-xl z-[60] max-h-60 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
                                                 {availableEmployees
                                                     .filter(e =>
                                                         !additionalCollabs.includes(e.name) &&
@@ -802,7 +801,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
             {/* MODAL: ENTRADA (CHECK-IN) */}
             {isCheckinModalOpen && activeLogForCheckin && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl animate-in zoom-in-95 fade-in duration-300 overflow-hidden max-h-[90vh] flex flex-col">
+                    <div className="bg-white w-full max-w-lg rounded-[20px] shadow-2xl animate-in zoom-in-95 fade-in duration-300 overflow-hidden max-h-[90vh] flex flex-col">
                         <div className="px-10 py-10 bg-slate-900 text-white flex items-center justify-between shrink-0">
                             <div>
                                 <h3 className="text-2xl font-black tracking-tighter uppercase mb-1">Registrar Entrada</h3>
@@ -872,7 +871,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
             {/* MODAL: NOVO VEÍCULO */}
             {isVehicleModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl animate-in zoom-in-95 fade-in duration-300 overflow-hidden max-h-[90vh] flex flex-col">
+                    <div className="bg-white w-full max-w-lg rounded-[20px] shadow-2xl animate-in zoom-in-95 fade-in duration-300 overflow-hidden max-h-[90vh] flex flex-col">
                         <div className="px-10 py-10 bg-primary text-white flex items-center justify-between shrink-0">
                             <div>
                                 <h3 className="text-2xl font-black tracking-tighter uppercase mb-1">Adicionar Veículo</h3>
@@ -901,24 +900,25 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                         placeholder="ABC1D23"
                                         value={vehPlate}
                                         onChange={(e) => setVehPlate(e.target.value)}
-                                        className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase font-mono"
+                                        className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase font-mono-code tabular-nums"
                                     />
                                 </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Tipo</label>
-                                    <select
-                                        value={vehType}
-                                        onChange={(e) => setVehType(e.target.value)}
-                                        className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase appearance-none"
-                                    >
-                                        <option value="Utilitário">Utilitário</option>
-                                        <option value="Passeio">Passeio</option>
-                                        <option value="Van">Van</option>
-                                        <option value="Moto">Moto</option>
-                                        <option value="Caminhão">Caminhão</option>
-                                        <option value="Outro">Outro</option>
-                                    </select>
-                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] ml-2">Tipo de Veículo</label>
+                                <select
+                                    required
+                                    value={vehType}
+                                    onChange={(e) => setVehType(e.target.value)}
+                                    className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase"
+                                >
+                                    <option value="Utilitário">Utilitário</option>
+                                    <option value="Passeio">Passeio</option>
+                                    <option value="Van">Van</option>
+                                    <option value="Moto">Moto</option>
+                                    <option value="Caminhão">Caminhão</option>
+                                    <option value="Outro">Outro</option>
+                                </select>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
@@ -937,7 +937,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                                     <input
                                         type="text"
                                         required
-                                        placeholder="Ex: Mobi"
+                                        placeholder="Ex: Strada / Mobi"
                                         value={vehModel}
                                         onChange={(e) => setVehModel(e.target.value)}
                                         className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-slate-900 focus:ring-4 focus:ring-primary/5 transition-all text-sm font-bold uppercase"
@@ -1002,10 +1002,10 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                     title="Concluir Manutenção"
                 >
                     <form onSubmit={handleCompleteMaintenance} className="p-10 space-y-6">
-                        <div className="p-6 bg-slate-50 rounded-2xl space-y-2 border border-slate-100">
+                        <div className="p-6 bg-slate-50 rounded-2xl space-y-2 border border-[#E6E8EC]">
                             <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Veículo</p>
                             <p className="text-xl font-black text-slate-900 text-center uppercase">{maintenanceVehicle?.model}</p>
-                            <p className="text-xs font-bold text-slate-400 text-center uppercase font-mono tracking-widest">{maintenanceVehicle?.plate}</p>
+                            <p className="text-xs font-bold text-slate-400 text-center uppercase font-mono-code tabular-nums tracking-widest">{maintenanceVehicle?.plate}</p>
                         </div>
 
                         <div className="space-y-2">
@@ -1027,7 +1027,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                         <button
                             type="submit"
                             disabled={submitting}
-                            className="w-full py-5 bg-primary text-white rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-primary/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                            className="w-full py-5 bg-primary text-white rounded-[18px] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-primary/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                         >
                             {submitting ? <Loader2 className="animate-spin" /> : <Check size={18} />}
                             Concluir Manutenção e Liberar

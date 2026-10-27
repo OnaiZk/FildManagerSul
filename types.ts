@@ -90,9 +90,9 @@ export interface Team {
 export interface Vehicle {
   id: string;
   tag?: string;
-  brand: string;
+  brand?: string;
   model: string;
-  type: string;
+  type?: string;
   plate: string;
   companyId: string;
   currentKm: number;
@@ -256,6 +256,8 @@ export interface DailyReport {
   shift?: 'Diurno' | 'Noturno' | string;
   carPlate?: string;
   opecId?: string;
+  driverId?: string;
+  driverName?: string;
   route?: string;
   notes?: string;
   companyId: string;
@@ -287,4 +289,44 @@ export interface AssetMeasurement {
   technicianName?: string; // Hydrated for UI
   assetCode?: string; // Hydrated for UI
   assetAddress?: string; // Hydrated for UI
+}
+
+export type AgendaCategory =
+  | 'DDS'
+  | 'DESTAQUE_EQUIPE'
+  | 'SAIDA_TARDIA'
+  | 'EVENTO'
+  | 'OCORRENCIA'
+  | 'GERAL';
+
+export interface AgendaComment {
+  id: string;
+  entryId: string;
+  authorId: string;
+  authorName: string;
+  authorRole: UserRole;
+  authorAvatar?: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface LeaderAgendaEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  time?: string; // HH:mm optional
+  category: AgendaCategory;
+  title: string;
+  description: string;
+  leaderId: string;
+  leaderName: string;
+  leaderRole?: UserRole;
+  leaderAvatar?: string;
+  teamIds?: string[];
+  teamNames?: string[];
+  technicianIds?: string[];
+  technicianNames?: string[];
+  companyId: string;
+  comments: AgendaComment[];
+  createdAt: string;
+  updatedAt?: string;
 }
