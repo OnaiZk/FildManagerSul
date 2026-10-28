@@ -58,6 +58,10 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [isExportingMonth, setIsExportingMonth] = useState(false);
+    const [monthExportMode, setMonthExportMode] = useState<'consolidado' | 'separado' | 'diurno' | 'noturno'>('consolidado');
+    const [isDayExportModalOpen, setIsDayExportModalOpen] = useState(false);
+    const [dayExportMode, setDayExportMode] = useState<'consolidado' | 'separado' | 'diurno' | 'noturno'>('consolidado');
+    const [isExportingDay, setIsExportingDay] = useState(false);
     const [isEditingReport, setIsEditingReport] = useState(false);
     const isEditingRef = useRef(false);
 
@@ -412,67 +416,28 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         }
     };
 
-    const handleExportExcel = async () => {
-        const teamName = selectedTeam
-            ? teams.find(t => t.id === selectedTeam)?.name || 'Equipe'
-            : 'Equipe Personalizada';
-
-        // 1. Calculate all unique participants FROM ALL REPORTS OF THE DAY
-        const participantIds = new Set<string>();
-        let maxTechs = 0; // Initialize maxTechs here
-
-        allDayReports.forEach(r => {
-            if (r.teamId) {
-                const team = teams.find(t => t.id === r.teamId);
-                team?.technicianIds.forEach(id => participantIds.add(id));
-                if (team?.leaderId) participantIds.add(team.leaderId);
-            }
-            if (r.technicianIds) {
-                r.technicianIds.forEach(id => participantIds.add(id));
-            }
-            r.activities.forEach(a => {
-                a.technicianIds?.forEach(tid => participantIds.add(tid));
-                // Update maxTechs based on ALL activities in ALL reports
-                maxTechs = Math.max(maxTechs, a.technicianIds?.length || 0);
-            });
-            if (r.userId) participantIds.add(r.userId);
-        });
-
-        const participants = users.filter(u => participantIds.has(u.id));
-
-        // 2. Info for header
-        // For Consolidated, we use the header of Sheet1 based on the first report or current selection,
-        // but rows will have their own metadata.
-        const currentCarInfo = vehicles.find(v => v.plate === report?.carPlate);
-        const currentOpecInfo = opecDevices.find(o => o.id === report?.opecId);
-
-        // 3. Create Workbook and Sheets
-        const { workbook, worksheet: wsActivities, startRow } = await createEletromidiaWorkbook(
-            `Relatório Diário Consolidado - ${date}`,
-            'Atividades'
-        );
-
-        // --- SHEET 1: ATIVIDADES ---
+    const populateActivitiesWorksheet = (
+        ws: any,
+        headerRowIndex: number,
+        reportsList: DailyReport[],
+        maxTechsCount: number
+    ) => {
         const activitiesHeader = ['Data', 'Turno', 'Veículo', 'OPEC', 'Motorista'];
-        // Show Técnico 2, Técnico 3, Técnico 4 (or more if maxTechs is larger)
-        const techHeaderCount = Math.max(maxTechs - 1, 3);
+        const techHeaderCount = Math.max(maxTechsCount - 1, 3);
         for (let i = 2; i <= techHeaderCount + 1; i++) {
             activitiesHeader.push(`Técnico ${i}`);
         }
         activitiesHeader.push('Líder Responsável', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Observações');
 
-        const headerRow = wsActivities.getRow(startRow);
+        const headerRow = ws.getRow(headerRowIndex);
         headerRow.values = activitiesHeader;
         styleHeaderRow(headerRow);
 
-        // Data rows - ALL REPORTS FOR THE DAY
-        allDayReports.forEach((r) => {
-            // Fallback: use report-level values if activity doesn't have them
+        reportsList.forEach((r) => {
             const fallbackCarInfo = vehicles.find(v => v.plate === r.carPlate);
             const fallbackOpecInfo = opecDevices.find(o => o.id === r.opecId);
 
             r.activities.forEach((a) => {
-                // Prioriza dados da atividade, com fallback para dados do relatório
                 const activityCarInfo = a.carPlate ? vehicles.find(v => v.plate === a.carPlate) : fallbackCarInfo;
                 const activityOpecInfo = a.opecId ? opecDevices.find(o => o.id === a.opecId) : fallbackOpecInfo;
 
@@ -499,12 +464,10 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                     techList.push('Equipe Completa');
                 }
 
-                // Pad technicians to match the number of header columns
                 for (let i = 0; i < techHeaderCount; i++) {
                     rowData.push(techList[i] || '');
                 }
 
-                // Append remaining fields
                 rowData.push(
                     leaderName,
                     r.route || '',
@@ -513,26 +476,89 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                     r.notes || ''
                 );
 
-                wsActivities.addRow(rowData);
+                ws.addRow(rowData);
             });
         });
 
-        styleDataRows(wsActivities, startRow);
-        autoFitColumns(wsActivities);
+        styleDataRows(ws, headerRowIndex);
+        autoFitColumns(ws);
+    };
 
-        // --- SHEET 2: PARTICIPANTES ---
+    const buildDailyWorkbook = async (
+        reportsList: DailyReport[],
+        shiftTitle: string,
+        teamName: string,
+        includeShiftTabs: boolean
+    ) => {
+        const participantIds = new Set<string>();
+        let maxTechs = 0;
+
+        reportsList.forEach(r => {
+            if (r.teamId) {
+                const team = teams.find(t => t.id === r.teamId);
+                team?.technicianIds.forEach(id => participantIds.add(id));
+                if (team?.leaderId) participantIds.add(team.leaderId);
+            }
+            if (r.technicianIds) {
+                r.technicianIds.forEach(id => participantIds.add(id));
+            }
+            r.activities.forEach(a => {
+                a.technicianIds?.forEach(tid => participantIds.add(tid));
+                maxTechs = Math.max(maxTechs, a.technicianIds?.length || 0);
+            });
+            if (r.userId) participantIds.add(r.userId);
+        });
+
+        const participants = users.filter(u => participantIds.has(u.id));
+        const currentCarInfo = vehicles.find(v => v.plate === report?.carPlate);
+        const currentOpecInfo = opecDevices.find(o => o.id === report?.opecId);
+
+        const { workbook, worksheet: wsActivities, startRow } = await createEletromidiaWorkbook(
+            `Relatório Diário (${shiftTitle}) - ${date}`,
+            'Atividades'
+        );
+
+        // --- SHEET 1: ATIVIDADES ---
+        populateActivitiesWorksheet(wsActivities, startRow, reportsList, maxTechs);
+
+        // --- ABAS SEPARADAS POR TURNO (QUANDO CONSOLIDADO) ---
+        const diurnoList = reportsList.filter(r => (r.shift || 'Diurno') !== 'Noturno');
+        const noturnoList = reportsList.filter(r => r.shift === 'Noturno');
+
+        if (includeShiftTabs) {
+            const wsDiurno = workbook.addWorksheet('Atividades - Dia (Diurno)');
+            populateActivitiesWorksheet(wsDiurno, 1, diurnoList, maxTechs);
+
+            const wsNoturno = workbook.addWorksheet('Atividades - Noite (Noturno)');
+            populateActivitiesWorksheet(wsNoturno, 1, noturnoList, maxTechs);
+        }
+
+        // --- SHEET: PARTICIPANTES ---
         const wsMembers = workbook.addWorksheet('Participantes');
-        const membersHeader = ['Nome', 'Função', 'Status'];
+        const membersHeader = ['Nome', 'Função', 'Turno(s)', 'Status'];
         const mHeaderRow = wsMembers.getRow(1);
         mHeaderRow.values = membersHeader;
         styleHeaderRow(mHeaderRow);
 
         participants.forEach(m => {
             const absence = absences.find(a => a.employeeId === m.id);
-            const isDriver = allDayReports.some(r => r.driverId === m.id);
+            const isDriver = reportsList.some(r => r.driverId === m.id);
+            const memberShifts = new Set<string>();
+            reportsList.forEach(r => {
+                const inReport =
+                    r.userId === m.id ||
+                    r.driverId === m.id ||
+                    r.technicianIds?.includes(m.id) ||
+                    r.activities.some(a => a.technicianIds?.includes(m.id));
+                if (inReport) {
+                    memberShifts.add(r.shift || 'Diurno');
+                }
+            });
+
             wsMembers.addRow([
                 m.name,
                 m.role.replace('PARCEIRO_', '') + (isDriver ? ' (Motorista)' : ''),
+                Array.from(memberShifts).join(' / ') || shiftTitle,
                 absence ? `AUSENTE: ${absence.reason}` : 'PRESENTE'
             ]);
         });
@@ -540,23 +566,32 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         styleDataRows(wsMembers, 1);
         autoFitColumns(wsMembers);
 
-        // --- SHEET 3: RESUMO ---
+        // --- SHEET: RESUMO ---
         const wsSummary = workbook.addWorksheet('Resumo');
         const summaryHeader = ['Campo', 'Valor'];
         const sHeaderRow = wsSummary.getRow(1);
         sHeaderRow.values = summaryHeader;
         styleHeaderRow(sHeaderRow);
 
-        const summaryData = [
+        const diurnoActivitiesCount = diurnoList.reduce((acc, r) => acc + r.activities.length, 0);
+        const diurnoQuantityCount = diurnoList.reduce((acc, r) => acc + r.activities.reduce((sum, a) => sum + a.quantity, 0), 0);
+        const noturnoActivitiesCount = noturnoList.reduce((acc, r) => acc + r.activities.length, 0);
+        const noturnoQuantityCount = noturnoList.reduce((acc, r) => acc + r.activities.reduce((sum, a) => sum + a.quantity, 0), 0);
+
+        const summaryData: (string | number)[][] = [
             ['Data', date],
-            ['Turno', report?.shift || defaultShift],
+            ['Turno Exportado', shiftTitle],
             ['Equipe/Referência', teamName],
             ['Veículo (Principal)', currentCarInfo ? `${currentCarInfo.model} (${currentCarInfo.plate})` : 'N/A'],
             ['OPEC (Principal)', currentOpecInfo ? `${currentOpecInfo.assetCode} - ${currentOpecInfo.model}` : 'N/A'],
             ['Motorista da Equipe', report?.driverName || 'N/A'],
-            ['Total de Lançamentos (Dia)', allDayReports.reduce((acc, r) => acc + r.activities.length, 0)],
-            ['Total de Peças/Qtd (Dia)', allDayReports.reduce((acc, r) => acc + r.activities.reduce((sum, a) => sum + a.quantity, 0), 0)],
-            ['Relatórios Consolidados', allDayReports.length],
+            ['Total de Lançamentos (Geral)', reportsList.reduce((acc, r) => acc + r.activities.length, 0)],
+            ['Total de Peças/Qtd (Geral)', reportsList.reduce((acc, r) => acc + r.activities.reduce((sum, a) => sum + a.quantity, 0), 0)],
+            ['Lançamentos - Dia (Diurno)', diurnoActivitiesCount],
+            ['Peças/Qtd - Dia (Diurno)', diurnoQuantityCount],
+            ['Lançamentos - Noite (Noturno)', noturnoActivitiesCount],
+            ['Peças/Qtd - Noite (Noturno)', noturnoQuantityCount],
+            ['Relatórios Consolidados', reportsList.length],
             ['Participantes Únicos', participants.length],
             ['Ausências Registradas', absences.length],
             ['Rota', report?.route || ''],
@@ -567,9 +602,231 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         styleDataRows(wsSummary, 1);
         autoFitColumns(wsSummary);
 
-        // Save
-        const fileName = `Relatorio_${date}_${teamName.replace(/\s/g, '_')}`;
-        await saveWorkbook(workbook, fileName);
+        return workbook;
+    };
+
+    const handleExportExcel = async (modeOverride?: 'consolidado' | 'separado' | 'diurno' | 'noturno') => {
+        const mode = modeOverride || dayExportMode;
+        const teamName = selectedTeam
+            ? teams.find(t => t.id === selectedTeam)?.name || 'Equipe'
+            : 'Equipe Personalizada';
+        const safeTeamName = teamName.replace(/\s/g, '_');
+
+        const diurnoReports = allDayReports.filter(r => (r.shift || 'Diurno') !== 'Noturno');
+        const noturnoReports = allDayReports.filter(r => r.shift === 'Noturno');
+
+        setIsExportingDay(true);
+        try {
+            if (mode === 'diurno') {
+                if (!diurnoReports.some(r => r.activities.length > 0)) {
+                    alert('Nenhuma atividade registrada no turno Diurno (Dia) para esta data.');
+                    return;
+                }
+                const wb = await buildDailyWorkbook(diurnoReports, 'Diurno (Dia)', teamName, false);
+                await saveWorkbook(wb, `Relatorio_Dia_Diurno_${date}_${safeTeamName}`);
+            } else if (mode === 'noturno') {
+                if (!noturnoReports.some(r => r.activities.length > 0)) {
+                    alert('Nenhuma atividade registrada no turno Noturno (Noite) para esta data.');
+                    return;
+                }
+                const wb = await buildDailyWorkbook(noturnoReports, 'Noturno (Noite)', teamName, false);
+                await saveWorkbook(wb, `Relatorio_Noite_Noturno_${date}_${safeTeamName}`);
+            } else if (mode === 'separado') {
+                const wbDia = await buildDailyWorkbook(diurnoReports, 'Diurno (Dia)', teamName, false);
+                await saveWorkbook(wbDia, `Relatorio_Dia_Diurno_${date}_${safeTeamName}`);
+
+                await new Promise(resolve => setTimeout(resolve, 350));
+
+                const wbNoite = await buildDailyWorkbook(noturnoReports, 'Noturno (Noite)', teamName, false);
+                await saveWorkbook(wbNoite, `Relatorio_Noite_Noturno_${date}_${safeTeamName}`);
+            } else {
+                const wb = await buildDailyWorkbook(allDayReports, 'Consolidado (Dia e Noite)', teamName, true);
+                await saveWorkbook(wb, `Relatorio_${date}_${safeTeamName}`);
+            }
+            setIsDayExportModalOpen(false);
+        } catch (err) {
+            console.error('Error exporting daily report:', err);
+            alert('Erro ao exportar relatório diário.');
+        } finally {
+            setIsExportingDay(false);
+        }
+    };
+
+    const buildMonthlyWorkbook = async (
+        reportsList: DailyReport[],
+        monthAbsences: Absence[],
+        monthName: string,
+        startDate: string,
+        endDate: string,
+        shiftLabel: string,
+        includeShiftTabs: boolean
+    ) => {
+        const participantIds = new Set<string>();
+        let maxTechs = 0;
+
+        reportsList.forEach(r => {
+            if (r.teamId) {
+                const team = teams.find(t => t.id === r.teamId);
+                team?.technicianIds.forEach(id => participantIds.add(id));
+                if (team?.leaderId) participantIds.add(team.leaderId);
+            }
+            if (r.technicianIds) {
+                r.technicianIds.forEach(id => participantIds.add(id));
+            }
+            r.activities.forEach(a => {
+                a.technicianIds?.forEach(tid => participantIds.add(tid));
+                maxTechs = Math.max(maxTechs, a.technicianIds?.length || 0);
+            });
+            if (r.userId) participantIds.add(r.userId);
+        });
+
+        const participants = users.filter(u => participantIds.has(u.id));
+
+        const { workbook, worksheet: wsActivities, startRow } = await createEletromidiaWorkbook(
+            `Relatório Mensal (${shiftLabel}) - ${monthName}/${selectedYear}`,
+            'Atividades'
+        );
+
+        // --- SHEET 1: ATIVIDADES ---
+        populateActivitiesWorksheet(wsActivities, startRow, reportsList, maxTechs);
+
+        const diurnoList = reportsList.filter(r => (r.shift || 'Diurno') !== 'Noturno');
+        const noturnoList = reportsList.filter(r => r.shift === 'Noturno');
+
+        if (includeShiftTabs) {
+            const wsDiurno = workbook.addWorksheet('Atividades - Dia (Diurno)');
+            populateActivitiesWorksheet(wsDiurno, 1, diurnoList, maxTechs);
+
+            const wsNoturno = workbook.addWorksheet('Atividades - Noite (Noturno)');
+            populateActivitiesWorksheet(wsNoturno, 1, noturnoList, maxTechs);
+        }
+
+        // --- SHEET: RESUMO DIÁRIO ---
+        const wsDailySummary = workbook.addWorksheet('Resumo Diário');
+        const dailyHeader = [
+            'Data',
+            'Relatórios (Dia)',
+            'Qtd Peças (Dia)',
+            'Relatórios (Noite)',
+            'Qtd Peças (Noite)',
+            'Total Relatórios',
+            'Total Lançamentos',
+            'Total Quantidade',
+            'Ausências'
+        ];
+        const dHeaderRow = wsDailySummary.getRow(1);
+        dHeaderRow.values = dailyHeader;
+        styleHeaderRow(dHeaderRow);
+
+        const dailyData = new Map<string, {
+            reportsDia: number;
+            qtyDia: number;
+            reportsNoite: number;
+            qtyNoite: number;
+            reports: number;
+            activities: number;
+            quantity: number;
+            absences: number;
+        }>();
+
+        reportsList.forEach(r => {
+            const current = dailyData.get(r.date) || {
+                reportsDia: 0,
+                qtyDia: 0,
+                reportsNoite: 0,
+                qtyNoite: 0,
+                reports: 0,
+                activities: 0,
+                quantity: 0,
+                absences: 0
+            };
+            const reportQty = r.activities.reduce((sum, a) => sum + a.quantity, 0);
+            if (r.shift === 'Noturno') {
+                current.reportsNoite += 1;
+                current.qtyNoite += reportQty;
+            } else {
+                current.reportsDia += 1;
+                current.qtyDia += reportQty;
+            }
+            current.reports += 1;
+            current.activities += r.activities.length;
+            current.quantity += reportQty;
+            dailyData.set(r.date, current);
+        });
+
+        monthAbsences.forEach(a => {
+            if (a.date >= startDate && a.date <= endDate) {
+                const current = dailyData.get(a.date) || {
+                    reportsDia: 0,
+                    qtyDia: 0,
+                    reportsNoite: 0,
+                    qtyNoite: 0,
+                    reports: 0,
+                    activities: 0,
+                    quantity: 0,
+                    absences: 0
+                };
+                current.absences += 1;
+                dailyData.set(a.date, current);
+            }
+        });
+
+        Array.from(dailyData.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .forEach(([d, data]) => {
+                wsDailySummary.addRow([
+                    d,
+                    data.reportsDia,
+                    data.qtyDia,
+                    data.reportsNoite,
+                    data.qtyNoite,
+                    data.reports,
+                    data.activities,
+                    data.quantity,
+                    data.absences
+                ]);
+            });
+
+        styleDataRows(wsDailySummary, 1);
+        autoFitColumns(wsDailySummary);
+
+        // --- SHEET: RESUMO MENSAL ---
+        const wsSummary = workbook.addWorksheet('Resumo Mensal');
+        const summaryHeader = ['Campo', 'Valor'];
+        const sHeaderRow = wsSummary.getRow(1);
+        sHeaderRow.values = summaryHeader;
+        styleHeaderRow(sHeaderRow);
+
+        const totalActivities = reportsList.reduce((acc, r) => acc + r.activities.length, 0);
+        const totalQuantity = reportsList.reduce((acc, r) => acc + r.activities.reduce((sum, a) => sum + a.quantity, 0), 0);
+        const diurnoActivities = diurnoList.reduce((acc, r) => acc + r.activities.length, 0);
+        const diurnoQuantity = diurnoList.reduce((acc, r) => acc + r.activities.reduce((sum, a) => sum + a.quantity, 0), 0);
+        const noturnoActivities = noturnoList.reduce((acc, r) => acc + r.activities.length, 0);
+        const noturnoQuantity = noturnoList.reduce((acc, r) => acc + r.activities.reduce((sum, a) => sum + a.quantity, 0), 0);
+        const uniqueDays = new Set(reportsList.map(r => r.date)).size;
+
+        const summaryData = [
+            ['Período', `${monthName}/${selectedYear}`],
+            ['Turno Exportado', shiftLabel],
+            ['Dias com Atividade', uniqueDays],
+            ['Total de Relatórios (Geral)', reportsList.length],
+            ['Total de Lançamentos (Geral)', totalActivities],
+            ['Total de Peças/Quantidade (Geral)', totalQuantity],
+            ['Relatórios - Dia (Diurno)', diurnoList.length],
+            ['Lançamentos - Dia (Diurno)', diurnoActivities],
+            ['Peças/Quantidade - Dia (Diurno)', diurnoQuantity],
+            ['Relatórios - Noite (Noturno)', noturnoList.length],
+            ['Lançamentos - Noite (Noturno)', noturnoActivities],
+            ['Peças/Quantidade - Noite (Noturno)', noturnoQuantity],
+            ['Participantes Únicos', participants.length],
+            ['Total de Ausências', monthAbsences.length]
+        ];
+
+        summaryData.forEach(row => wsSummary.addRow(row));
+        styleDataRows(wsSummary, 1);
+        autoFitColumns(wsSummary);
+
+        return workbook;
     };
 
     const handleExportMonthlyExcel = async () => {
@@ -601,168 +858,43 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 console.warn('Could not fetch absences, continuing without them:', absenceError);
             }
 
-            // Calculate all unique participants
-            const participantIds = new Set<string>();
-            let maxTechs = 0;
-
-            monthReports.forEach(r => {
-                if (r.teamId) {
-                    const team = teams.find(t => t.id === r.teamId);
-                    team?.technicianIds.forEach(id => participantIds.add(id));
-                    if (team?.leaderId) participantIds.add(team.leaderId);
-                }
-                if (r.technicianIds) {
-                    r.technicianIds.forEach(id => participantIds.add(id));
-                }
-                r.activities.forEach(a => {
-                    a.technicianIds?.forEach(tid => participantIds.add(tid));
-                    maxTechs = Math.max(maxTechs, a.technicianIds?.length || 0);
-                });
-                if (r.userId) participantIds.add(r.userId);
-            });
-
-            const participants = users.filter(u => participantIds.has(u.id));
-
             // Month names in Portuguese
             const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
                 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
             const monthName = monthNames[selectedMonth - 1];
 
-            // Create Workbook
-            const { workbook, worksheet: wsActivities, startRow } = await createEletromidiaWorkbook(
-                `Relatório Mensal Consolidado - ${monthName}/${selectedYear}`,
-                'Atividades'
-            );
+            const diurnoMonthReports = monthReports.filter(r => (r.shift || 'Diurno') !== 'Noturno');
+            const noturnoMonthReports = monthReports.filter(r => r.shift === 'Noturno');
 
-            // --- SHEET 1: ATIVIDADES ---
-            const activitiesHeader = ['Data', 'Turno', 'Veículo', 'OPEC', 'Motorista'];
-            const techHeaderCount = Math.max(maxTechs - 1, 3);
-            for (let i = 2; i <= techHeaderCount + 1; i++) {
-                activitiesHeader.push(`Técnico ${i}`);
-            }
-            activitiesHeader.push('Líder Responsável', 'Rota', 'Tipo de Atividade', 'Quantidade', 'Observações');
-
-            const headerRow = wsActivities.getRow(startRow);
-            headerRow.values = activitiesHeader;
-            styleHeaderRow(headerRow);
-
-            // Data rows - ALL REPORTS FOR THE MONTH
-            monthReports.forEach((r) => {
-                // Fallback: use report-level values if activity doesn't have them
-                const fallbackCarInfo = vehicles.find(v => v.plate === r.carPlate);
-                const fallbackOpecInfo = opecDevices.find(o => o.id === r.opecId);
-
-                r.activities.forEach((a) => {
-                    // Prioriza dados da atividade, com fallback para dados do relatório
-                    const activityCarInfo = a.carPlate ? vehicles.find(v => v.plate === a.carPlate) : fallbackCarInfo;
-                    const activityOpecInfo = a.opecId ? opecDevices.find(o => o.id === a.opecId) : fallbackOpecInfo;
-
-                    const leaderName = a.liderName || users.find(u => u.id === r.userId)?.name || 'Desconhecido';
-                    const driverName = r.driverName || 'N/A';
-
-                    const rowData: (string | number)[] = [
-                        r.date,
-                        r.shift || 'Diurno',
-                        activityCarInfo ? `${activityCarInfo.model} (${activityCarInfo.plate})` : '',
-                        activityOpecInfo ? `${activityOpecInfo.assetCode}` : '',
-                        driverName
-                    ];
-
-                    const techList: string[] = [];
-                    if (a.technicianIds && a.technicianIds.length > 0) {
-                        a.technicianIds.forEach(tid => {
-                            if (tid !== r.driverId) {
-                                const techName = users.find(u => u.id === tid)?.name || 'Desconhecido';
-                                techList.push(techName);
-                            }
-                        });
-                    } else {
-                        techList.push('Equipe Completa');
-                    }
-
-                    for (let i = 0; i < techHeaderCount; i++) {
-                        rowData.push(techList[i] || '');
-                    }
-
-                    rowData.push(
-                        leaderName,
-                        r.route || '',
-                        a.activityType,
-                        a.quantity,
-                        r.notes || ''
-                    );
-
-                    wsActivities.addRow(rowData);
-                });
-            });
-
-            styleDataRows(wsActivities, startRow);
-            autoFitColumns(wsActivities);
-
-            // --- SHEET 2: RESUMO DIÁRIO ---
-            const wsDailySummary = workbook.addWorksheet('Resumo Diário');
-            const dailyHeader = ['Data', 'Relatórios', 'Total Lançamentos', 'Total Quantidade', 'Ausências'];
-            const dHeaderRow = wsDailySummary.getRow(1);
-            dHeaderRow.values = dailyHeader;
-            styleHeaderRow(dHeaderRow);
-
-            // Group by date
-            const dailyData = new Map<string, { reports: number; activities: number; quantity: number; absences: number }>();
-            monthReports.forEach(r => {
-                const current = dailyData.get(r.date) || { reports: 0, activities: 0, quantity: 0, absences: 0 };
-                current.reports += 1;
-                current.activities += r.activities.length;
-                current.quantity += r.activities.reduce((sum, a) => sum + a.quantity, 0);
-                dailyData.set(r.date, current);
-            });
-            monthAbsences.forEach(a => {
-                // If absence is a range, we should ideally mark all days in the range that fall within this month
-                // For simplicity in this summary, we'll at least count it for the start date if it's in this month
-                if (a.date >= startDate && a.date <= endDate) {
-                    const current = dailyData.get(a.date) || { reports: 0, activities: 0, quantity: 0, absences: 0 };
-                    current.absences += 1;
-                    dailyData.set(a.date, current);
+            if (monthExportMode === 'diurno') {
+                if (diurnoMonthReports.length === 0) {
+                    alert('Nenhum relatório do turno Diurno (Dia) encontrado para o mês selecionado.');
+                    setIsExportingMonth(false);
+                    return;
                 }
-            });
+                const wb = await buildMonthlyWorkbook(diurnoMonthReports, monthAbsences, monthName, startDate, endDate, 'Diurno (Dia)', false);
+                await saveWorkbook(wb, `Relatorio_Mensal_Dia_Diurno_${monthName}_${selectedYear}`);
+            } else if (monthExportMode === 'noturno') {
+                if (noturnoMonthReports.length === 0) {
+                    alert('Nenhum relatório do turno Noturno (Noite) encontrado para o mês selecionado.');
+                    setIsExportingMonth(false);
+                    return;
+                }
+                const wb = await buildMonthlyWorkbook(noturnoMonthReports, monthAbsences, monthName, startDate, endDate, 'Noturno (Noite)', false);
+                await saveWorkbook(wb, `Relatorio_Mensal_Noite_Noturno_${monthName}_${selectedYear}`);
+            } else if (monthExportMode === 'separado') {
+                const wbDia = await buildMonthlyWorkbook(diurnoMonthReports, monthAbsences, monthName, startDate, endDate, 'Diurno (Dia)', false);
+                await saveWorkbook(wbDia, `Relatorio_Mensal_Dia_Diurno_${monthName}_${selectedYear}`);
 
-            // Sort by date and add rows
-            Array.from(dailyData.entries())
-                .sort(([a], [b]) => a.localeCompare(b))
-                .forEach(([date, data]) => {
-                    wsDailySummary.addRow([date, data.reports, data.activities, data.quantity, data.absences]);
-                });
+                await new Promise(resolve => setTimeout(resolve, 350));
 
-            styleDataRows(wsDailySummary, 1);
-            autoFitColumns(wsDailySummary);
+                const wbNoite = await buildMonthlyWorkbook(noturnoMonthReports, monthAbsences, monthName, startDate, endDate, 'Noturno (Noite)', false);
+                await saveWorkbook(wbNoite, `Relatorio_Mensal_Noite_Noturno_${monthName}_${selectedYear}`);
+            } else {
+                const wb = await buildMonthlyWorkbook(monthReports, monthAbsences, monthName, startDate, endDate, 'Consolidado (Dia e Noite)', true);
+                await saveWorkbook(wb, `Relatorio_Mensal_${monthName}_${selectedYear}`);
+            }
 
-            // --- SHEET 3: RESUMO MENSAL ---
-            const wsSummary = workbook.addWorksheet('Resumo Mensal');
-            const summaryHeader = ['Campo', 'Valor'];
-            const sHeaderRow = wsSummary.getRow(1);
-            sHeaderRow.values = summaryHeader;
-            styleHeaderRow(sHeaderRow);
-
-            const totalActivities = monthReports.reduce((acc, r) => acc + r.activities.length, 0);
-            const totalQuantity = monthReports.reduce((acc, r) => acc + r.activities.reduce((sum, a) => sum + a.quantity, 0), 0);
-            const uniqueDays = new Set(monthReports.map(r => r.date)).size;
-
-            const summaryData = [
-                ['Período', `${monthName}/${selectedYear}`],
-                ['Dias com Atividade', uniqueDays],
-                ['Total de Relatórios', monthReports.length],
-                ['Total de Lançamentos', totalActivities],
-                ['Total de Peças/Quantidade', totalQuantity],
-                ['Participantes Únicos', participants.length],
-                ['Total de Ausências', monthAbsences.length]
-            ];
-
-            summaryData.forEach(row => wsSummary.addRow(row));
-            styleDataRows(wsSummary, 1);
-            autoFitColumns(wsSummary);
-
-            // Save
-            const fileName = `Relatorio_Mensal_${monthName}_${selectedYear}`;
-            await saveWorkbook(workbook, fileName);
             setIsMonthModalOpen(false);
         } catch (err) {
             console.error('Error exporting monthly report:', err);
@@ -1000,12 +1132,12 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                     </button>
 
                     <button
-                        onClick={handleExportExcel}
+                        onClick={() => setIsDayExportModalOpen(true)}
                         disabled={!hasActivitiesInDay}
                         className="flex items-center gap-2 bg-slate-700 text-white px-4 py-3 rounded-2xl font-black text-sm hover:bg-slate-800 transition-all shadow-lg disabled:opacity-50 disabled:grayscale"
                     >
                         <Download size={18} />
-                        Exportar
+                        Exportar Dia
                     </button>
 
                     <button
@@ -1571,6 +1703,151 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 </div>
             )}
 
+            {/* Modal de Exportação do Dia (Separado Dia e Noite) */}
+            {isDayExportModalOpen && (
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[20px] w-full max-w-md overflow-hidden shadow-2xl border border-[#E6E8EC] animate-in fade-in zoom-in duration-200">
+                        <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
+                            <div>
+                                <h3 className="text-lg font-bold font-display text-[#141518] tracking-tight">Exportar Relatório Diário</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data: {formatDateBR(date)}</p>
+                            </div>
+                            <button onClick={() => setIsDayExportModalOpen(false)} className="p-2 hover:bg-white rounded-xl text-slate-400 transition-colors shadow-sm">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-5">
+                            {/* Resumo rápido de lançamentos por turno no dia */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+                                    <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                                        <Sun size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Turno Dia (Diurno)</p>
+                                        <p className="text-xs font-black text-slate-800">
+                                            {allDayReports.filter(r => (r.shift || 'Diurno') !== 'Noturno').reduce((acc, r) => acc + r.activities.length, 0)} lançamentos
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center gap-3">
+                                    <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+                                        <Moon size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">Turno Noite (Noturno)</p>
+                                        <p className="text-xs font-black text-slate-800">
+                                            {allDayReports.filter(r => r.shift === 'Noturno').reduce((acc, r) => acc + r.activities.length, 0)} lançamentos
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2.5">Formato / Turno para Exportação</label>
+                                <div className="space-y-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setDayExportMode('consolidado')}
+                                        className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                                            dayExportMode === 'consolidado'
+                                                ? 'bg-primary/5 border-primary text-slate-900 shadow-sm'
+                                                : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div>
+                                            <p className="text-xs font-black text-slate-800">Consolidado (Com Abas Dia e Noite Separadas)</p>
+                                            <p className="text-[10px] font-bold text-slate-400">1 arquivo Excel com aba geral + aba Dia + aba Noite</p>
+                                        </div>
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${dayExportMode === 'consolidado' ? 'border-primary' : 'border-slate-300'}`}>
+                                            {dayExportMode === 'consolidado' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setDayExportMode('separado')}
+                                        className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                                            dayExportMode === 'separado'
+                                                ? 'bg-primary/5 border-primary text-slate-900 shadow-sm'
+                                                : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div>
+                                            <p className="text-xs font-black text-slate-800">Arquivos Separados (Dia e Noite)</p>
+                                            <p className="text-[10px] font-bold text-slate-400">Baixa 2 planilhas separadas: 1 de Dia (Diurno) e 1 de Noite (Noturno)</p>
+                                        </div>
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${dayExportMode === 'separado' ? 'border-primary' : 'border-slate-300'}`}>
+                                            {dayExportMode === 'separado' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                                        </div>
+                                    </button>
+
+                                    <div className="grid grid-cols-2 gap-2 pt-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => setDayExportMode('diurno')}
+                                            className={`p-3 rounded-2xl border text-left transition-all flex items-center gap-2 ${
+                                                dayExportMode === 'diurno'
+                                                    ? 'bg-amber-50 border-amber-400 text-amber-900 shadow-sm'
+                                                    : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <Sun size={16} className="text-amber-500 shrink-0" />
+                                            <div>
+                                                <p className="text-xs font-black">Só Dia</p>
+                                                <p className="text-[10px] font-bold text-slate-400">Apenas Diurno</p>
+                                            </div>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setDayExportMode('noturno')}
+                                            className={`p-3 rounded-2xl border text-left transition-all flex items-center gap-2 ${
+                                                dayExportMode === 'noturno'
+                                                    ? 'bg-indigo-50 border-indigo-400 text-indigo-900 shadow-sm'
+                                                    : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <Moon size={16} className="text-indigo-600 shrink-0" />
+                                            <div>
+                                                <p className="text-xs font-black">Só Noite</p>
+                                                <p className="text-[10px] font-bold text-slate-400">Apenas Noturno</p>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => handleExportExcel(dayExportMode)}
+                                disabled={isExportingDay}
+                                className="w-full flex items-center justify-center gap-2 bg-slate-800 text-white px-6 py-4 rounded-2xl font-black text-sm hover:bg-slate-900 transition-all shadow-lg disabled:opacity-50"
+                            >
+                                {isExportingDay ? (
+                                    <>
+                                        <History className="animate-spin" size={18} />
+                                        Gerando Relatório...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Download size={18} />
+                                        {dayExportMode === 'separado'
+                                            ? 'Baixar Relatórios Dia e Noite'
+                                            : dayExportMode === 'diurno'
+                                                ? 'Baixar Relatório do Dia (Diurno)'
+                                                : dayExportMode === 'noturno'
+                                                    ? 'Baixar Relatório da Noite (Noturno)'
+                                                    : 'Baixar Relatório Consolidado'}
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Modal de Seleção de Mês para Exportação */}
             {isMonthModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
@@ -1578,14 +1855,14 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                         <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
                             <div>
                                 <h3 className="text-lg font-bold font-display text-[#141518] tracking-tight">Exportar Relatório Mensal</h3>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Consolidado de todos os dias do mês</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Consolidado ou separado por turno (Dia / Noite)</p>
                             </div>
                             <button onClick={() => setIsMonthModalOpen(false)} className="p-2 hover:bg-white rounded-xl text-slate-400 transition-colors shadow-sm">
                                 <X size={20} />
                             </button>
                         </div>
 
-                        <div className="p-6 space-y-6">
+                        <div className="p-6 space-y-5">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Mês</label>
@@ -1622,10 +1899,79 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                 </div>
                             </div>
 
-                            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl">
-                                <p className="text-xs font-bold text-emerald-700">
-                                    O relatório incluirá todas as atividades, ausências e resumos do mês selecionado em 3 abas: Atividades, Resumo Diário e Resumo Mensal.
-                                </p>
+                            <div>
+                                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2.5">Turno / Formato de Exportação</label>
+                                <div className="space-y-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setMonthExportMode('consolidado')}
+                                        className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                                            monthExportMode === 'consolidado'
+                                                ? 'bg-emerald-50/70 border-emerald-500 text-slate-900 shadow-sm'
+                                                : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div>
+                                            <p className="text-xs font-black text-slate-800">Consolidado (Com Abas Dia e Noite)</p>
+                                            <p className="text-[10px] font-bold text-slate-400">1 planilha com Atividades Geral, Aba Dia, Aba Noite e Resumos</p>
+                                        </div>
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${monthExportMode === 'consolidado' ? 'border-emerald-600' : 'border-slate-300'}`}>
+                                            {monthExportMode === 'consolidado' && <div className="w-2 h-2 rounded-full bg-emerald-600" />}
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setMonthExportMode('separado')}
+                                        className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                                            monthExportMode === 'separado'
+                                                ? 'bg-emerald-50/70 border-emerald-500 text-slate-900 shadow-sm'
+                                                : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div>
+                                            <p className="text-xs font-black text-slate-800">Arquivos Separados (Dia e Noite)</p>
+                                            <p className="text-[10px] font-bold text-slate-400">Baixa 2 relatórios mensais separados: 1 de Dia e 1 de Noite</p>
+                                        </div>
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${monthExportMode === 'separado' ? 'border-emerald-600' : 'border-slate-300'}`}>
+                                            {monthExportMode === 'separado' && <div className="w-2 h-2 rounded-full bg-emerald-600" />}
+                                        </div>
+                                    </button>
+
+                                    <div className="grid grid-cols-2 gap-2 pt-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => setMonthExportMode('diurno')}
+                                            className={`p-3 rounded-2xl border text-left transition-all flex items-center gap-2 ${
+                                                monthExportMode === 'diurno'
+                                                    ? 'bg-amber-50 border-amber-400 text-amber-900 shadow-sm'
+                                                    : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <Sun size={16} className="text-amber-500 shrink-0" />
+                                            <div>
+                                                <p className="text-xs font-black">Só Dia</p>
+                                                <p className="text-[10px] font-bold text-slate-400">Apenas Diurno</p>
+                                            </div>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setMonthExportMode('noturno')}
+                                            className={`p-3 rounded-2xl border text-left transition-all flex items-center gap-2 ${
+                                                monthExportMode === 'noturno'
+                                                    ? 'bg-indigo-50 border-indigo-400 text-indigo-900 shadow-sm'
+                                                    : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <Moon size={16} className="text-indigo-600 shrink-0" />
+                                            <div>
+                                                <p className="text-xs font-black">Só Noite</p>
+                                                <p className="text-[10px] font-bold text-slate-400">Apenas Noturno</p>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
 
                             <button
@@ -1641,7 +1987,13 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                 ) : (
                                     <>
                                         <Download size={18} />
-                                        Exportar Relatório do Mês
+                                        {monthExportMode === 'separado'
+                                            ? 'Exportar Mês Separado (Dia e Noite)'
+                                            : monthExportMode === 'diurno'
+                                                ? 'Exportar Mês - Apenas Dia (Diurno)'
+                                                : monthExportMode === 'noturno'
+                                                    ? 'Exportar Mês - Apenas Noite (Noturno)'
+                                                    : 'Exportar Relatório do Mês'}
                                     </>
                                 )}
                             </button>

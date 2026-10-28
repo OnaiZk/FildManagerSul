@@ -38,7 +38,9 @@ import {
   MapPin,
   FileText,
   Activity,
-  AlertTriangle
+  AlertTriangle,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
 
@@ -52,6 +54,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState<'reports' | 'absences' | 'vehicles' | 'teams'>('reports');
   const [searchTerm, setSearchTerm] = useState('');
+  const [shiftFilter, setShiftFilter] = useState<'all' | 'Diurno' | 'Noturno'>('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -68,6 +71,8 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
   const [selectedReportForDetails, setSelectedReportForDetails] = useState<DailyReport | null>(null);
   const [selectedEvidenceUrl, setSelectedEvidenceUrl] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportShiftMode, setExportShiftMode] = useState<'consolidado' | 'separado' | 'diurno' | 'noturno'>('consolidado');
 
   const isToday = useMemo(() => {
     return selectedDate === new Date().toISOString().split('T')[0];
@@ -201,9 +206,14 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
   // Filtered reports
   const filteredDailyReports = useMemo(() => {
-    if (!searchTerm.trim()) return dailyReports;
-    const term = searchTerm.toLowerCase();
     return dailyReports.filter(r => {
+      const reportShift = r.shift === 'Noturno' ? 'Noturno' : 'Diurno';
+      if (shiftFilter !== 'all' && reportShift !== shiftFilter) {
+        return false;
+      }
+
+      if (!searchTerm.trim()) return true;
+      const term = searchTerm.toLowerCase();
       const leader = users.find(u => u.id === r.userId)?.name || '';
       const driver = r.driverName || '';
       const plate = r.carPlate || '';
@@ -217,10 +227,11 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
         plate.toLowerCase().includes(term) ||
         opec.toLowerCase().includes(term) ||
         notes.toLowerCase().includes(term) ||
-        activities.toLowerCase().includes(term)
+        activities.toLowerCase().includes(term) ||
+        reportShift.toLowerCase().includes(term)
       );
     });
-  }, [dailyReports, searchTerm, users, opecDevices]);
+  }, [dailyReports, searchTerm, shiftFilter, users, opecDevices]);
 
   // Filtered absences
   const filteredAbsences = useMemo(() => {
@@ -274,111 +285,179 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
     setSelectedDate(d.toISOString().split('T')[0]);
   };
 
+  const populateLeaderActivitiesSheet = (ws: any, headerRowIndex: number, reportsList: DailyReport[]) => {
+    const headerRow = ws.getRow(headerRowIndex);
+    headerRow.values = [
+      'Data',
+      'Turno',
+      'Líder Responsável',
+      'Veículo',
+      'OPEC',
+      'Motorista',
+      'Técnicos Envolvidos',
+      'Rota / Região',
+      'Tipo de Atividade',
+      'Quantidade',
+      'Códigos de Ativos',
+      'Observações'
+    ];
+    styleHeaderRow(headerRow);
+
+    reportsList.forEach(r => {
+      const leader = users.find(u => u.id === r.userId)?.name || 'Desconhecido';
+      const fallbackCar = vehicles.find(v => v.plate === r.carPlate);
+      const fallbackOpec = opecDevices.find(o => o.id === r.opecId);
+
+      r.activities?.forEach(a => {
+        const car = a.carPlate ? vehicles.find(v => v.plate === a.carPlate) : fallbackCar;
+        const opec = a.opecId ? opecDevices.find(o => o.id === a.opecId) : fallbackOpec;
+        const activityLeader = a.liderName || leader;
+
+        const techNames = (a.technicianIds || r.technicianIds || [])
+          .map(tid => users.find(u => u.id === tid)?.name || 'Técnico')
+          .join(', ');
+
+        ws.addRow([
+          r.date,
+          r.shift || 'Diurno',
+          activityLeader,
+          car ? `${car.model} (${car.plate})` : r.carPlate || 'N/A',
+          opec ? opec.assetCode : 'N/A',
+          r.driverName || 'N/A',
+          techNames || 'Equipe',
+          r.route || 'Matriz',
+          a.activityType,
+          a.quantity,
+          a.assetCodes?.join(', ') || '',
+          r.notes || ''
+        ]);
+      });
+    });
+
+    styleDataRows(ws, headerRowIndex);
+    autoFitColumns(ws);
+  };
+
+  const buildLeaderWorkbook = async (
+    reportsList: DailyReport[],
+    shiftLabel: string,
+    includeShiftTabs: boolean
+  ) => {
+    const { workbook, worksheet: wsActivities, startRow } = await createEletromidiaWorkbook(
+      `Relatório Consolidado de Campo (${shiftLabel}) - ${selectedDate}`,
+      'Atividades'
+    );
+
+    populateLeaderActivitiesSheet(wsActivities, startRow, reportsList);
+
+    const diurnoList = reportsList.filter(r => (r.shift || 'Diurno') !== 'Noturno');
+    const noturnoList = reportsList.filter(r => r.shift === 'Noturno');
+
+    if (includeShiftTabs) {
+      const wsDia = workbook.addWorksheet('Atividades - Dia (Diurno)');
+      populateLeaderActivitiesSheet(wsDia, 1, diurnoList);
+
+      const wsNoite = workbook.addWorksheet('Atividades - Noite (Noturno)');
+      populateLeaderActivitiesSheet(wsNoite, 1, noturnoList);
+    }
+
+    // Sheet: Faltas e Ausências
+    const wsAbsences = workbook.addWorksheet('Faltas e Ausências');
+    const absHeader = wsAbsences.getRow(1);
+    absHeader.values = ['Colaborador', 'Motivo', 'Data Início', 'Data Fim', 'Observações / Justificativa', 'Tem Comprovante'];
+    styleHeaderRow(absHeader);
+
+    dayAbsences.forEach(a => {
+      wsAbsences.addRow([
+        a.employeeName,
+        a.reason,
+        a.date,
+        a.endDate || a.date,
+        a.description || '',
+        a.evidenceUrl ? 'SIM' : 'NÃO'
+      ]);
+    });
+
+    styleDataRows(wsAbsences, 1);
+    autoFitColumns(wsAbsences);
+
+    // Sheet: Resumo Geral
+    const wsSummary = workbook.addWorksheet('Resumo do Dia');
+    const sumHeader = wsSummary.getRow(1);
+    sumHeader.values = ['Indicador', 'Total'];
+    styleHeaderRow(sumHeader);
+
+    const listActivitiesCount = reportsList.reduce((acc, r) => acc + (r.activities?.length || 0), 0);
+    const listPiecesQuantity = reportsList.reduce((acc, r) => acc + (r.activities?.reduce((sum, a) => sum + (Number(a.quantity) || 0), 0) || 0), 0);
+    const diurnoActivitiesCount = diurnoList.reduce((acc, r) => acc + (r.activities?.length || 0), 0);
+    const diurnoPiecesQuantity = diurnoList.reduce((acc, r) => acc + (r.activities?.reduce((sum, a) => sum + (Number(a.quantity) || 0), 0) || 0), 0);
+    const noturnoActivitiesCount = noturnoList.reduce((acc, r) => acc + (r.activities?.length || 0), 0);
+    const noturnoPiecesQuantity = noturnoList.reduce((acc, r) => acc + (r.activities?.reduce((sum, a) => sum + (Number(a.quantity) || 0), 0) || 0), 0);
+
+    const summaryRows = [
+      ['Data do Relatório', selectedDate],
+      ['Turno Exportado', shiftLabel],
+      ['Total de Relatórios Lançados', reportsList.length],
+      ['Total de Atividades Registradas', listActivitiesCount],
+      ['Total de Peças/Volumes Produzidos', listPiecesQuantity],
+      ['Relatórios - Dia (Diurno)', diurnoList.length],
+      ['Atividades - Dia (Diurno)', diurnoActivitiesCount],
+      ['Peças/Volumes - Dia (Diurno)', diurnoPiecesQuantity],
+      ['Relatórios - Noite (Noturno)', noturnoList.length],
+      ['Atividades - Noite (Noturno)', noturnoActivitiesCount],
+      ['Peças/Volumes - Noite (Noturno)', noturnoPiecesQuantity],
+      ['Colaboradores Ativos no Dia', activeTechniciansToday.length],
+      ['Faltas / Ausências Registradas', dayAbsences.length],
+      ['Veículos em Operação', activeVehiclesToday.length]
+    ];
+
+    summaryRows.forEach(row => wsSummary.addRow(row));
+    styleDataRows(wsSummary, 1);
+    autoFitColumns(wsSummary);
+
+    return workbook;
+  };
+
   // Export Consolidated Excel
-  const handleExportConsolidatedXLSX = async () => {
+  const handleExportConsolidatedXLSX = async (modeOverride?: 'consolidado' | 'separado' | 'diurno' | 'noturno') => {
+    const mode = modeOverride || exportShiftMode;
     if (dailyReports.length === 0 && dayAbsences.length === 0) {
       alert('Nenhum dado encontrado para a data selecionada para exportação.');
       return;
     }
 
+    const diurnoReports = dailyReports.filter(r => (r.shift || 'Diurno') !== 'Noturno');
+    const noturnoReports = dailyReports.filter(r => r.shift === 'Noturno');
+
     setIsExporting(true);
     try {
-      const { workbook, worksheet: wsActivities, startRow } = await createEletromidiaWorkbook(
-        `Relatório Consolidado de Campo - ${selectedDate}`,
-        'Atividades'
-      );
+      if (mode === 'diurno') {
+        if (diurnoReports.length === 0 && dayAbsences.length === 0) {
+          alert('Nenhum relatório do turno Diurno (Dia) encontrado para esta data.');
+          return;
+        }
+        const wb = await buildLeaderWorkbook(diurnoReports, 'Diurno (Dia)', false);
+        await saveWorkbook(wb, `Painel_Lider_Dia_Diurno_${selectedDate}`);
+      } else if (mode === 'noturno') {
+        if (noturnoReports.length === 0 && dayAbsences.length === 0) {
+          alert('Nenhum relatório do turno Noturno (Noite) encontrado para esta data.');
+          return;
+        }
+        const wb = await buildLeaderWorkbook(noturnoReports, 'Noturno (Noite)', false);
+        await saveWorkbook(wb, `Painel_Lider_Noite_Noturno_${selectedDate}`);
+      } else if (mode === 'separado') {
+        const wbDia = await buildLeaderWorkbook(diurnoReports, 'Diurno (Dia)', false);
+        await saveWorkbook(wbDia, `Painel_Lider_Dia_Diurno_${selectedDate}`);
 
-      // Sheet 1: Atividades
-      const headerRow = wsActivities.getRow(startRow);
-      headerRow.values = [
-        'Data',
-        'Líder Responsável',
-        'Veículo',
-        'OPEC',
-        'Motorista',
-        'Técnicos Envolvidos',
-        'Rota / Região',
-        'Tipo de Atividade',
-        'Quantidade',
-        'Códigos de Ativos',
-        'Observações'
-      ];
-      styleHeaderRow(headerRow);
+        await new Promise(resolve => setTimeout(resolve, 350));
 
-      dailyReports.forEach(r => {
-        const leader = users.find(u => u.id === r.userId)?.name || 'Desconhecido';
-        const fallbackCar = vehicles.find(v => v.plate === r.carPlate);
-        const fallbackOpec = opecDevices.find(o => o.id === r.opecId);
-
-        r.activities?.forEach(a => {
-          const car = a.carPlate ? vehicles.find(v => v.plate === a.carPlate) : fallbackCar;
-          const opec = a.opecId ? opecDevices.find(o => o.id === a.opecId) : fallbackOpec;
-          const activityLeader = a.liderName || leader;
-
-          const techNames = (a.technicianIds || r.technicianIds || [])
-            .map(tid => users.find(u => u.id === tid)?.name || 'Técnico')
-            .join(', ');
-
-          wsActivities.addRow([
-            r.date,
-            activityLeader,
-            car ? `${car.model} (${car.plate})` : r.carPlate || 'N/A',
-            opec ? opec.assetCode : 'N/A',
-            r.driverName || 'N/A',
-            techNames || 'Equipe',
-            r.route || 'Matriz',
-            a.activityType,
-            a.quantity,
-            a.assetCodes?.join(', ') || '',
-            r.notes || ''
-          ]);
-        });
-      });
-
-      styleDataRows(wsActivities, startRow);
-      autoFitColumns(wsActivities);
-
-      // Sheet 2: Faltas e Ausências
-      const wsAbsences = workbook.addWorksheet('Faltas e Ausências');
-      const absHeader = wsAbsences.getRow(1);
-      absHeader.values = ['Colaborador', 'Motivo', 'Data Início', 'Data Fim', 'Observações / Justificativa', 'Tem Comprovante'];
-      styleHeaderRow(absHeader);
-
-      dayAbsences.forEach(a => {
-        wsAbsences.addRow([
-          a.employeeName,
-          a.reason,
-          a.date,
-          a.endDate || a.date,
-          a.description || '',
-          a.evidenceUrl ? 'SIM' : 'NÃO'
-        ]);
-      });
-
-      styleDataRows(wsAbsences, 1);
-      autoFitColumns(wsAbsences);
-
-      // Sheet 3: Resumo Geral
-      const wsSummary = workbook.addWorksheet('Resumo do Dia');
-      const sumHeader = wsSummary.getRow(1);
-      sumHeader.values = ['Indicador', 'Total'];
-      styleHeaderRow(sumHeader);
-
-      const summaryRows = [
-        ['Data do Relatório', selectedDate],
-        ['Total de Relatórios Lançados', dailyReports.length],
-        ['Total de Atividades Registradas', totalActivitiesCount],
-        ['Total de Peças/Volumes Produzidos', totalPiecesQuantity],
-        ['Colaboradores Ativos no Dia', activeTechniciansToday.length],
-        ['Faltas / Ausências Registradas', dayAbsences.length],
-        ['Veículos em Operação', activeVehiclesToday.length]
-      ];
-
-      summaryRows.forEach(row => wsSummary.addRow(row));
-      styleDataRows(wsSummary, 1);
-      autoFitColumns(wsSummary);
-
-      await saveWorkbook(workbook, `Painel_Lider_Consolidado_${selectedDate}`);
+        const wbNoite = await buildLeaderWorkbook(noturnoReports, 'Noturno (Noite)', false);
+        await saveWorkbook(wbNoite, `Painel_Lider_Noite_Noturno_${selectedDate}`);
+      } else {
+        const wb = await buildLeaderWorkbook(dailyReports, 'Consolidado (Dia e Noite)', true);
+        await saveWorkbook(wb, `Painel_Lider_Consolidado_${selectedDate}`);
+      }
+      setIsExportModalOpen(false);
     } catch (err) {
       console.error('Error exporting consolidated XLSX:', err);
       alert('Erro ao exportar arquivo XLSX consolidado.');
@@ -388,22 +467,18 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
   };
 
   // Export CSV
-  const handleExportCSV = () => {
-    if (dailyReports.length === 0 && dayAbsences.length === 0) {
-      alert('Nenhum dado encontrado para exportar em CSV.');
-      return;
-    }
-
+  const downloadCSVForReports = (reportsList: DailyReport[], fileSuffix: string) => {
     const rows: string[][] = [
-      ['Tipo', 'Data', 'Responsável', 'Veículo', 'OPEC', 'Detalhe / Atividade', 'Quantidade / Motivo', 'Observações']
+      ['Tipo', 'Data', 'Turno', 'Responsável', 'Veículo', 'OPEC', 'Detalhe / Atividade', 'Quantidade / Motivo', 'Observações']
     ];
 
-    dailyReports.forEach(r => {
+    reportsList.forEach(r => {
       const leader = users.find(u => u.id === r.userId)?.name || 'Líder';
       r.activities?.forEach(a => {
         rows.push([
           'RELATÓRIO DIÁRIO',
           r.date,
+          r.shift || 'Diurno',
           leader,
           a.carPlate || r.carPlate || 'N/A',
           a.opecId || r.opecId || 'N/A',
@@ -418,6 +493,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
       rows.push([
         'FALTA / AUSÊNCIA',
         a.date,
+        'N/A',
         a.employeeName,
         'N/A',
         'N/A',
@@ -431,10 +507,34 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Painel_Lider_${selectedDate}.csv`);
+    link.setAttribute('download', `Painel_Lider_${fileSuffix}${selectedDate}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExportCSV = async (modeOverride?: 'consolidado' | 'separado' | 'diurno' | 'noturno') => {
+    const mode = modeOverride || exportShiftMode;
+    if (dailyReports.length === 0 && dayAbsences.length === 0) {
+      alert('Nenhum dado encontrado para exportar em CSV.');
+      return;
+    }
+
+    const diurnoReports = dailyReports.filter(r => (r.shift || 'Diurno') !== 'Noturno');
+    const noturnoReports = dailyReports.filter(r => r.shift === 'Noturno');
+
+    if (mode === 'diurno') {
+      downloadCSVForReports(diurnoReports, 'Dia_Diurno_');
+    } else if (mode === 'noturno') {
+      downloadCSVForReports(noturnoReports, 'Noite_Noturno_');
+    } else if (mode === 'separado') {
+      downloadCSVForReports(diurnoReports, 'Dia_Diurno_');
+      await new Promise(resolve => setTimeout(resolve, 350));
+      downloadCSVForReports(noturnoReports, 'Noite_Noturno_');
+    } else {
+      downloadCSVForReports(dailyReports, '');
+    }
+    setIsExportModalOpen(false);
   };
 
   const getAbsenceBadgeColor = (reason: string) => {
@@ -503,16 +603,16 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
           )}
 
           <button
-            onClick={handleExportConsolidatedXLSX}
+            onClick={() => setIsExportModalOpen(true)}
             disabled={isExporting}
             className="flex items-center gap-2 bg-primary hover:bg-primary-600 text-white text-xs font-black px-4 py-3 rounded-2xl transition-all shadow-sm hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
           >
             <FileSpreadsheet size={16} />
-            <span>{isExporting ? 'Gerando...' : 'Exportar Relatório Consolidado (.XLSX)'}</span>
+            <span>{isExporting ? 'Gerando...' : 'Exportar Relatório (.XLSX / Dia e Noite)'}</span>
           </button>
 
           <button
-            onClick={handleExportCSV}
+            onClick={() => handleExportCSV(shiftFilter === 'Diurno' ? 'diurno' : shiftFilter === 'Noturno' ? 'noturno' : 'consolidado')}
             className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 border border-[#E6E8EC] text-slate-700 text-xs font-black px-3.5 py-3 rounded-2xl transition-all shadow-sm"
             title="Exportar arquivo CSV do dia selecionado"
           >
@@ -679,6 +779,32 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
           {/* Date Filter & Quick Actions */}
           <div className="flex items-center gap-3 flex-wrap">
             
+            {/* Shift Filter (Todos / Dia / Noite) */}
+            {activeTab === 'reports' && (
+              <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-[#E6E8EC] text-xs font-black">
+                <button
+                  onClick={() => setShiftFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg transition-all ${shiftFilter === 'all' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  Todos
+                </button>
+                <button
+                  onClick={() => setShiftFilter('Diurno')}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all ${shiftFilter === 'Diurno' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  <Sun size={13} />
+                  Dia
+                </button>
+                <button
+                  onClick={() => setShiftFilter('Noturno')}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all ${shiftFilter === 'Noturno' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  <Moon size={13} />
+                  Noite
+                </button>
+              </div>
+            )}
+
             {/* Quick date switches */}
             <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-[#E6E8EC] text-xs font-black">
               <button
@@ -795,14 +921,22 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                     return (
                       <tr key={report.id} className="hover:bg-slate-50/80 transition-colors group">
                         
-                        {/* 1. Hora */}
+                        {/* 1. Hora / Turno */}
                         <td className="py-4 px-4 whitespace-nowrap">
-                          <div className="flex flex-col">
+                          <div className="flex flex-col gap-1">
                             <span className="font-black text-slate-900 flex items-center gap-1">
                               <Clock size={12} className="text-slate-400" />
                               {report.date}
                             </span>
-                            <span className="text-[10px] text-slate-400 font-bold">Consolidado</span>
+                            {(report.shift || 'Diurno') === 'Noturno' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-[10px] font-black uppercase w-fit">
+                                <Moon size={10} /> Noturno
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-[10px] font-black uppercase w-fit">
+                                <Sun size={10} /> Diurno
+                              </span>
+                            )}
                           </div>
                         </td>
 
@@ -1154,10 +1288,19 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
             {/* Modal Header */}
             <div className="p-6 md:p-8 bg-slate-900 text-white flex justify-between items-start">
               <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="px-2.5 py-0.5 bg-primary text-white rounded-lg text-[10px] font-black uppercase tracking-wider">
                     Relatório Diário Detalhado
                   </span>
+                  {(selectedReportForDetails.shift || 'Diurno') === 'Noturno' ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-wider">
+                      <Moon size={11} /> Noturno (Noite)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-500 text-white rounded-lg text-[10px] font-black uppercase tracking-wider">
+                      <Sun size={11} /> Diurno (Dia)
+                    </span>
+                  )}
                   <span className="text-slate-400 text-xs font-mono-code tabular-nums font-bold">{selectedReportForDetails.date}</span>
                 </div>
                 <h3 className="text-xl md:text-2xl font-black text-white mt-1">
@@ -1318,6 +1461,159 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
               >
                 Fechar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 11. MODAL: OPÇÕES DE EXPORTAÇÃO (SEPARADO DIA E NOITE) */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[20px] max-w-md w-full border border-[#E6E8EC] shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 tracking-tight">Exportar Relatório do Painel</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data selecionada: {selectedDate}</p>
+              </div>
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="p-2 hover:bg-white rounded-xl text-slate-400 transition-colors shadow-sm"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Resumo rápido de relatórios Dia vs Noite */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                    <Sun size={18} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Dia (Diurno)</p>
+                    <p className="text-xs font-black text-slate-800">
+                      {dailyReports.filter(r => (r.shift || 'Diurno') !== 'Noturno').length} relatórios
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+                    <Moon size={18} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">Noite (Noturno)</p>
+                    <p className="text-xs font-black text-slate-800">
+                      {dailyReports.filter(r => r.shift === 'Noturno').length} relatórios
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2.5">Formato / Turno para Exportação</label>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setExportShiftMode('consolidado')}
+                    className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                      exportShiftMode === 'consolidado'
+                        ? 'bg-primary/5 border-primary text-slate-900 shadow-sm'
+                        : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    <div>
+                      <p className="text-xs font-black text-slate-800">Consolidado (Com Abas Dia e Noite)</p>
+                      <p className="text-[10px] font-bold text-slate-400">1 arquivo com aba geral + aba Dia + aba Noite</p>
+                    </div>
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${exportShiftMode === 'consolidado' ? 'border-primary' : 'border-slate-300'}`}>
+                      {exportShiftMode === 'consolidado' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setExportShiftMode('separado')}
+                    className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                      exportShiftMode === 'separado'
+                        ? 'bg-primary/5 border-primary text-slate-900 shadow-sm'
+                        : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    <div>
+                      <p className="text-xs font-black text-slate-800">Arquivos Separados (Dia e Noite)</p>
+                      <p className="text-[10px] font-bold text-slate-400">Baixa 2 arquivos separados: 1 de Dia e 1 de Noite</p>
+                    </div>
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${exportShiftMode === 'separado' ? 'border-primary' : 'border-slate-300'}`}>
+                      {exportShiftMode === 'separado' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setExportShiftMode('diurno')}
+                      className={`p-3 rounded-2xl border text-left transition-all flex items-center gap-2 ${
+                        exportShiftMode === 'diurno'
+                          ? 'bg-amber-50 border-amber-400 text-amber-900 shadow-sm'
+                          : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <Sun size={16} className="text-amber-500 shrink-0" />
+                      <div>
+                        <p className="text-xs font-black">Só Dia</p>
+                        <p className="text-[10px] font-bold text-slate-400">Apenas Diurno</p>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setExportShiftMode('noturno')}
+                      className={`p-3 rounded-2xl border text-left transition-all flex items-center gap-2 ${
+                        exportShiftMode === 'noturno'
+                          ? 'bg-indigo-50 border-indigo-400 text-indigo-900 shadow-sm'
+                          : 'bg-slate-50 border-[#E6E8EC] text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <Moon size={16} className="text-indigo-600 shrink-0" />
+                      <div>
+                        <p className="text-xs font-black">Só Noite</p>
+                        <p className="text-[10px] font-bold text-slate-400">Apenas Noturno</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => handleExportConsolidatedXLSX(exportShiftMode)}
+                  disabled={isExporting}
+                  className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary-600 text-white px-5 py-3.5 rounded-2xl font-black text-xs transition-all shadow-md disabled:opacity-50"
+                >
+                  <FileSpreadsheet size={16} />
+                  <span>
+                    {isExporting
+                      ? 'Gerando Excel...'
+                      : exportShiftMode === 'separado'
+                      ? 'Exportar Excel (.XLSX) - Dia e Noite Separados'
+                      : exportShiftMode === 'diurno'
+                      ? 'Exportar Excel (.XLSX) - Apenas Dia'
+                      : exportShiftMode === 'noturno'
+                      ? 'Exportar Excel (.XLSX) - Apenas Noite'
+                      : 'Exportar Excel (.XLSX) Consolidado'}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => handleExportCSV(exportShiftMode)}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3 rounded-2xl font-black text-xs transition-all"
+                >
+                  <Download size={15} />
+                  <span>Exportar em formato .CSV ({exportShiftMode === 'separado' ? 'Dia e Noite' : exportShiftMode})</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
