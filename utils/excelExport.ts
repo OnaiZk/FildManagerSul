@@ -81,6 +81,75 @@ export async function createEletromidiaWorkbook(title: string, sheetName: string
 }
 
 /**
+ * Adds a new Eletromidia-styled worksheet to an existing workbook
+ */
+export async function addEletromidiaSheet(workbook: ExcelJS.Workbook, title: string, sheetName: string, partnerLogoUrl?: string | null) {
+    const worksheet = workbook.addWorksheet(sheetName);
+
+    try {
+        const logoUrl = '/assets/logo_full.png';
+        const response = await fetch(logoUrl);
+        const buffer = await response.arrayBuffer();
+
+        const logoId = workbook.addImage({
+            buffer: buffer,
+            extension: 'png',
+        });
+
+        worksheet.addImage(logoId, {
+            tl: { col: 0.2, row: 0.2 },
+            ext: { width: 140, height: 35 }
+        });
+    } catch (error) {
+        console.warn('Could not load Eletromidia logo:', error);
+    }
+
+    if (partnerLogoUrl) {
+        try {
+            const response = await fetch(partnerLogoUrl);
+            const buffer = await response.arrayBuffer();
+
+            const partnerLogoId = workbook.addImage({
+                buffer: buffer,
+                extension: 'png',
+            });
+
+            worksheet.addImage(partnerLogoId, {
+                tl: { col: 6.5, row: 0.2 },
+                ext: { width: 100, height: 35 }
+            });
+        } catch (error) {
+            console.warn('Could not load Partner logo:', error);
+        }
+    }
+
+    const titleCell = worksheet.getCell('C2');
+    titleCell.value = title.toUpperCase();
+    titleCell.font = {
+        name: 'Arial',
+        family: 2,
+        size: 16,
+        bold: true,
+        color: { argb: '333333' }
+    };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
+
+    const dateCell = worksheet.getCell('C3');
+    dateCell.value = `Gerado em: ${new Date().toLocaleString('pt-BR')}`;
+    dateCell.font = { name: 'Arial', size: 10, italic: true, color: { argb: '666666' } };
+
+    worksheet.mergeCells('A5:G5');
+    const separator = worksheet.getCell('A5');
+    separator.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: ELETROMIDIA_ORANGE }
+    };
+
+    return { worksheet, startRow: 7 };
+}
+
+/**
  * Applies Eletromidia style to a table header row
  */
 export function styleHeaderRow(row: ExcelJS.Row) {

@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Task, TaskStatus, User, UserRole } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie } from 'recharts';
-import { FileSpreadsheet, TrendingUp, Users, Activity, Download, Calendar, Filter, Building2, ChevronDown, CheckCircle2, AlertCircle } from 'lucide-react';
+import { FileSpreadsheet, TrendingUp, Users, Activity, Download, Calendar, Filter, Building2, ChevronDown, CheckCircle2, AlertCircle, Sun, Moon, X } from 'lucide-react';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
+import { resolveUserShift, ShiftExportMode } from '../utils/shiftUtils';
 
 interface Props {
     tasks: Task[];
@@ -13,6 +14,10 @@ interface Props {
 export const ReportsView: React.FC<Props> = ({ tasks, users, currentUser }) => {
     const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7)); // YYYY-MM
     const [selectedCompany, setSelectedCompany] = useState<string>('all');
+    const [shiftFilter, setShiftFilter] = useState<'all' | 'Diurno' | 'Noturno'>('all');
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [exportShiftMode, setExportShiftMode] = useState<ShiftExportMode>('consolidado');
+    const [isExporting, setIsExporting] = useState(false);
 
     const companies = useMemo(() => {
         const unique = Array.from(new Set(tasks.map(t => t.companyId)));
@@ -22,13 +27,20 @@ export const ReportsView: React.FC<Props> = ({ tasks, users, currentUser }) => {
         }));
     }, [tasks]);
 
-    const filteredTasks = useMemo(() => {
+    const periodCompanyTasks = useMemo(() => {
         return tasks.filter(t => {
             const matchesMonth = t.scheduledDate.startsWith(selectedMonth);
             const matchesCompany = selectedCompany === 'all' || t.companyId === selectedCompany;
             return matchesMonth && matchesCompany;
         });
     }, [tasks, selectedMonth, selectedCompany]);
+
+    const filteredTasks = useMemo(() => {
+        return periodCompanyTasks.filter(t => {
+            if (shiftFilter === 'all') return true;
+            return resolveUserShift(t.technicianId, users) === shiftFilter;
+        });
+    }, [periodCompanyTasks, shiftFilter, users]);
 
     const stats = useMemo(() => {
         const total = filteredTasks.length;
@@ -80,22 +92,17 @@ export const ReportsView: React.FC<Props> = ({ tasks, users, currentUser }) => {
             .slice(0, 5);
     }, [filteredTasks, users]);
 
-    const handleExportFullReport = async () => {
-        const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
-            `Relatório Consolidado - ${selectedMonth}`,
-            'Relatório'
-        );
-
-        // Header row
-        const headers = ['Data', 'Ativo', 'Tipo', 'Serviço', 'Status', 'Técnico', 'Empresa'];
-        const headerRow = worksheet.getRow(startRow);
+    const populateTasksSheet = (ws: any, sRow: number, list: Task[]) => {
+        const headers = ['Data', 'Turno', 'Ativo', 'Tipo', 'Serviço', 'Status', 'Técnico', 'Empresa'];
+        const headerRow = ws.getRow(sRow);
         headerRow.values = headers;
         styleHeaderRow(headerRow);
 
-        // Data rows
-        filteredTasks.forEach(t => {
-            worksheet.addRow([
+        list.forEach(t => {
+            const shift = resolveUserShift(t.technicianId, users);
+            ws.addRow([
                 t.scheduledDate,
+                shift === 'Noturno' ? 'Noturno (Noite)' : 'Diurno (Dia)',
                 t.assetId,
                 t.asset?.type || '',
                 t.serviceType,
@@ -105,11 +112,59 @@ export const ReportsView: React.FC<Props> = ({ tasks, users, currentUser }) => {
             ]);
         });
 
-        styleDataRows(worksheet, startRow);
-        autoFitColumns(worksheet);
+        styleDataRows(ws, sRow);
+        autoFitColumns(ws);
+    };
 
-        const fileName = `Relatorio_Consolidado_${selectedMonth}`;
-        await saveWorkbook(workbook, fileName);
+    const buildPerformanceWorkbook = async (list: Task[], shiftLabel: string, includeShiftTabs: boolean) => {
+        const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
+            `Relatório Consolidado (${shiftLabel}) - ${selectedMonth}`,
+            'Relatório'
+        );
+
+        populateTasksSheet(worksheet, startRow, list);
+
+        if (includeShiftTabs) {
+            const dList = list.filter(t => resolveUserShift(t.technicianId, users) === 'Diurno');
+            const nList = list.filter(t => resolveUserShift(t.technicianId, users) === 'Noturno');
+
+            const wsDia = workbook.addWorksheet('OS - Dia (Diurno)');
+            populateTasksSheet(wsDia, 1, dList);
+
+            const wsNoite = workbook.addWorksheet('OS - Noite (Noturno)');
+            populateTasksSheet(wsNoite, 1, nList);
+        }
+
+        return workbook;
+    };
+
+    const handleExportFullReport = async (modeOverride?: ShiftExportMode) => {
+        const mode = modeOverride || exportShiftMode;
+        const diurnoTasks = periodCompanyTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Diurno');
+        const noturnoTasks = periodCompanyTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Noturno');
+
+        setIsExporting(true);
+        try {
+            if (mode === 'diurno') {
+                const wb = await buildPerformanceWorkbook(diurnoTasks, 'Diurno (Dia)', false);
+                await saveWorkbook(wb, `Relatorio_Consolidado_Dia_Diurno_${selectedMonth}`);
+            } else if (mode === 'noturno') {
+                const wb = await buildPerformanceWorkbook(noturnoTasks, 'Noturno (Noite)', false);
+                await saveWorkbook(wb, `Relatorio_Consolidado_Noite_Noturno_${selectedMonth}`);
+            } else if (mode === 'separado') {
+                const wbDia = await buildPerformanceWorkbook(diurnoTasks, 'Diurno (Dia)', false);
+                await saveWorkbook(wbDia, `Relatorio_Consolidado_Dia_Diurno_${selectedMonth}`);
+                await new Promise(resolve => setTimeout(resolve, 350));
+                const wbNoite = await buildPerformanceWorkbook(noturnoTasks, 'Noturno (Noite)', false);
+                await saveWorkbook(wbNoite, `Relatorio_Consolidado_Noite_Noturno_${selectedMonth}`);
+            } else {
+                const wb = await buildPerformanceWorkbook(periodCompanyTasks, 'Consolidado (Dia e Noite)', true);
+                await saveWorkbook(wb, `Relatorio_Consolidado_${selectedMonth}`);
+            }
+            setIsExportModalOpen(false);
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -122,6 +177,27 @@ export const ReportsView: React.FC<Props> = ({ tasks, users, currentUser }) => {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center bg-slate-50 p-1 rounded-2xl border border-slate-100 text-xs font-black">
+                        <button
+                            onClick={() => setShiftFilter('all')}
+                            className={`px-3 py-1.5 rounded-xl transition-all ${shiftFilter === 'all' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                        >
+                            Todos
+                        </button>
+                        <button
+                            onClick={() => setShiftFilter('Diurno')}
+                            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl transition-all ${shiftFilter === 'Diurno' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                        >
+                            <Sun size={13} /> Dia
+                        </button>
+                        <button
+                            onClick={() => setShiftFilter('Noturno')}
+                            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl transition-all ${shiftFilter === 'Noturno' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                        >
+                            <Moon size={13} /> Noite
+                        </button>
+                    </div>
+
                     <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
                         <Calendar size={18} className="text-primary" />
                         <input
@@ -145,11 +221,11 @@ export const ReportsView: React.FC<Props> = ({ tasks, users, currentUser }) => {
                     </div>
 
                     <button
-                        onClick={handleExportFullReport}
+                        onClick={() => setIsExportModalOpen(true)}
                         className="flex items-center gap-2 bg-primary text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-all shadow-lg shadow-primary/20"
                     >
                         <FileSpreadsheet size={18} />
-                        Exportar Excel
+                        Exportar Excel (Dia / Noite)
                     </button>
                 </div>
             </div>
@@ -214,6 +290,90 @@ export const ReportsView: React.FC<Props> = ({ tasks, users, currentUser }) => {
                     </div>
                 </div>
             </div>
+
+            {isExportModalOpen && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100">
+                        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+                            <div>
+                                <h3 className="text-base font-black text-slate-900 tracking-tight">Exportar Relatório Consolidado</h3>
+                                <p className="text-xs font-bold text-slate-400">Período: <span className="text-primary">{selectedMonth}</span></p>
+                            </div>
+                            <button
+                                onClick={() => setIsExportModalOpen(false)}
+                                className="p-2 rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-slate-600 transition-colors"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-5">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+                                    <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                                        <Sun size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Dia (Diurno)</p>
+                                        <p className="text-xs font-black text-slate-800">
+                                            {periodCompanyTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Diurno').length} OS
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center gap-3">
+                                    <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+                                        <Moon size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">Noite (Noturno)</p>
+                                        <p className="text-xs font-black text-slate-800">
+                                            {periodCompanyTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Noturno').length} OS
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Formato / Turno para Exportação</label>
+                                {[
+                                    { id: 'consolidado', title: 'Consolidado (Com Abas Dia e Noite)', desc: '1 arquivo com aba geral + aba Dia + aba Noite' },
+                                    { id: 'separado', title: 'Arquivos Separados (Dia e Noite)', desc: 'Baixa 2 arquivos separados: 1 de Dia e 1 de Noite' },
+                                    { id: 'diurno', title: 'Somente Turno Dia (Diurno)', desc: 'Apenas ordens de serviço do turno Diurno' },
+                                    { id: 'noturno', title: 'Somente Turno Noite (Noturno)', desc: 'Apenas ordens de serviço do turno Noturno' }
+                                ].map(opt => (
+                                    <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => setExportShiftMode(opt.id as ShiftExportMode)}
+                                        className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                                            exportShiftMode === opt.id
+                                                ? 'bg-primary/5 border-primary text-slate-900 shadow-sm'
+                                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div>
+                                            <p className="text-xs font-black text-slate-800">{opt.title}</p>
+                                            <p className="text-[10px] font-bold text-slate-400">{opt.desc}</p>
+                                        </div>
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${exportShiftMode === opt.id ? 'border-primary' : 'border-slate-300'}`}>
+                                            {exportShiftMode === opt.id && <div className="w-2 h-2 rounded-full bg-primary" />}
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+
+                            <button
+                                onClick={() => handleExportFullReport(exportShiftMode)}
+                                disabled={isExporting}
+                                className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary-600 text-white px-5 py-3.5 rounded-2xl font-black text-xs transition-all shadow-md disabled:opacity-50"
+                            >
+                                <FileSpreadsheet size={16} />
+                                <span>{isExporting ? 'Gerando Excel...' : 'Gerar Excel (.XLSX)'}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

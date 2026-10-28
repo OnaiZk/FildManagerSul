@@ -23,7 +23,10 @@ import {
     BookOpen,
     Info,
     LayoutGrid,
-    List
+    List,
+    Sun,
+    Moon,
+    FileSpreadsheet
 } from 'lucide-react';
 import {
     User,
@@ -44,10 +47,12 @@ import {
 } from '../api/fieldManagerApi';
 import {
     createEletromidiaWorkbook,
+    styleHeaderRow,
     styleDataRows,
     autoFitColumns,
     saveWorkbook
 } from '../utils/excelExport';
+import { resolveTimeOrUserShift, ShiftExportMode } from '../utils/shiftUtils';
 
 interface WeeklyAgendaViewProps {
     currentUser: User;
@@ -297,6 +302,9 @@ export const WeeklyAgendaView: React.FC<WeeklyAgendaViewProps> = ({ currentUser 
     const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
     const [submittingCommentFor, setSubmittingCommentFor] = useState<string | null>(null);
     const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
+    const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+    const [exportShiftMode, setExportShiftMode] = useState<ShiftExportMode>('consolidado');
+    const [isExportingWeek, setIsExportingWeek] = useState<boolean>(false);
 
     // Compute current week days (Mon - Sun)
     const weekDays = useMemo(() => getWeekDays(referenceDate), [referenceDate]);
@@ -602,16 +610,15 @@ export const WeeklyAgendaView: React.FC<WeeklyAgendaViewProps> = ({ currentUser 
         }
     };
 
-    const handleExportWeekExcel = async () => {
-        const periodLabel = `${weekDays[0].dayNumber}/${weekDays[0].monthShort} a ${weekDays[6].dayNumber}/${weekDays[6].monthShort}`;
-        const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
-            `Diário Semanal dos Líderes (${periodLabel})`,
-            'Agenda Semanal'
-        );
+    const resolveEntryShift = useCallback((entry: LeaderAgendaEntry) => {
+        return resolveTimeOrUserShift(entry.time, entry.leaderId || entry.leaderName, companyUsers);
+    }, [companyUsers]);
 
+    const populateAgendaSheet = (ws: any, sRow: number, list: LeaderAgendaEntry[]) => {
         const headers = [
             'Data',
             'Dia da Semana',
+            'Turno',
             'Horário',
             'Categoria',
             'Líder Responsável',
@@ -622,21 +629,24 @@ export const WeeklyAgendaView: React.FC<WeeklyAgendaViewProps> = ({ currentUser 
             'Comentários'
         ];
 
-        worksheet.getRow(startRow).values = headers;
+        const hRow = ws.getRow(sRow);
+        hRow.values = headers;
+        styleHeaderRow(hRow);
 
-        let currentRow = startRow + 1;
-        const sortedForExport = [...weekEntries].sort((a, b) => a.date.localeCompare(b.date));
+        const sortedForExport = [...list].sort((a, b) => a.date.localeCompare(b.date));
 
         for (const entry of sortedForExport) {
             const dayObj = weekDays.find(d => d.dateStr === entry.date);
             const dateFormatted = entry.date.split('-').reverse().join('/');
+            const entryShift = resolveEntryShift(entry);
             const commentsFormatted = (entry.comments || [])
                 .map(c => `${c.authorName}: ${c.text}`)
                 .join(' | ');
 
-            worksheet.getRow(currentRow).values = [
+            ws.addRow([
                 dateFormatted,
                 dayObj?.weekdayName || '',
+                entryShift === 'Noturno' ? 'Noturno (Noite)' : 'Diurno (Dia)',
                 entry.time || '-',
                 AGENDA_CATEGORIES[entry.category]?.label || entry.category,
                 entry.leaderName,
@@ -645,13 +655,63 @@ export const WeeklyAgendaView: React.FC<WeeklyAgendaViewProps> = ({ currentUser 
                 (entry.teamNames || []).join(', ') || '-',
                 (entry.technicianNames || []).join(', ') || '-',
                 commentsFormatted || '-'
-            ];
-            currentRow++;
+            ]);
         }
 
-        styleDataRows(worksheet, startRow);
-        autoFitColumns(worksheet);
-        await saveWorkbook(workbook, `agenda_semanal_lideres_${weekStartStr}_a_${weekEndStr}.xlsx`);
+        styleDataRows(ws, sRow);
+        autoFitColumns(ws);
+    };
+
+    const buildWeekWorkbook = async (list: LeaderAgendaEntry[], shiftLabel: string, includeShiftTabs: boolean) => {
+        const periodLabel = `${weekDays[0].dayNumber}/${weekDays[0].monthShort} a ${weekDays[6].dayNumber}/${weekDays[6].monthShort}`;
+        const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
+            `Diário Semanal dos Líderes (${shiftLabel}) - ${periodLabel}`,
+            'Agenda Semanal'
+        );
+
+        populateAgendaSheet(worksheet, startRow, list);
+
+        if (includeShiftTabs) {
+            const dList = list.filter(e => resolveEntryShift(e) === 'Diurno');
+            const nList = list.filter(e => resolveEntryShift(e) === 'Noturno');
+
+            const wsDia = workbook.addWorksheet('Agenda - Dia (Diurno)');
+            populateAgendaSheet(wsDia, 1, dList);
+
+            const wsNoite = workbook.addWorksheet('Agenda - Noite (Noturno)');
+            populateAgendaSheet(wsNoite, 1, nList);
+        }
+
+        return workbook;
+    };
+
+    const handleExportWeekExcel = async (modeOverride?: ShiftExportMode) => {
+        const mode = modeOverride || exportShiftMode;
+        const diurnoEntries = weekEntries.filter(e => resolveEntryShift(e) === 'Diurno');
+        const noturnoEntries = weekEntries.filter(e => resolveEntryShift(e) === 'Noturno');
+
+        setIsExportingWeek(true);
+        try {
+            if (mode === 'diurno') {
+                const wb = await buildWeekWorkbook(diurnoEntries, 'Diurno (Dia)', false);
+                await saveWorkbook(wb, `agenda_semanal_lideres_Dia_Diurno_${weekStartStr}_a_${weekEndStr}.xlsx`);
+            } else if (mode === 'noturno') {
+                const wb = await buildWeekWorkbook(noturnoEntries, 'Noturno (Noite)', false);
+                await saveWorkbook(wb, `agenda_semanal_lideres_Noite_Noturno_${weekStartStr}_a_${weekEndStr}.xlsx`);
+            } else if (mode === 'separado') {
+                const wbDia = await buildWeekWorkbook(diurnoEntries, 'Diurno (Dia)', false);
+                await saveWorkbook(wbDia, `agenda_semanal_lideres_Dia_Diurno_${weekStartStr}_a_${weekEndStr}.xlsx`);
+                await new Promise(resolve => setTimeout(resolve, 350));
+                const wbNoite = await buildWeekWorkbook(noturnoEntries, 'Noturno (Noite)', false);
+                await saveWorkbook(wbNoite, `agenda_semanal_lideres_Noite_Noturno_${weekStartStr}_a_${weekEndStr}.xlsx`);
+            } else {
+                const wb = await buildWeekWorkbook(weekEntries, 'Consolidado (Dia e Noite)', true);
+                await saveWorkbook(wb, `agenda_semanal_lideres_${weekStartStr}_a_${weekEndStr}.xlsx`);
+            }
+            setIsExportModalOpen(false);
+        } finally {
+            setIsExportingWeek(false);
+        }
     };
 
     const renderEntryCard = (entry: LeaderAgendaEntry, showFullDate = false) => {
@@ -884,12 +944,12 @@ export const WeeklyAgendaView: React.FC<WeeklyAgendaViewProps> = ({ currentUser 
                     <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                         <button
                             type="button"
-                            onClick={handleExportWeekExcel}
+                            onClick={() => setIsExportModalOpen(true)}
                             disabled={weekEntries.length === 0}
                             className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-[#E6E8EC] bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors"
                         >
                             <Download size={15} />
-                            Exportar Semana (.xlsx)
+                            Exportar Semana (Dia/Noite)
                         </button>
 
                         <button
@@ -1435,6 +1495,72 @@ export const WeeklyAgendaView: React.FC<WeeklyAgendaViewProps> = ({ currentUser 
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Export Modal (Dia / Noite) */}
+            {isExportModalOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl border border-[#E6E8EC] w-full max-w-md shadow-2xl p-6 space-y-5">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                <FileSpreadsheet className="text-orange-500" size={20} />
+                                Exportar Diário Semanal
+                            </h3>
+                            <button onClick={() => setIsExportModalOpen(false)} className="text-slate-400 hover:text-slate-700">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-100 space-y-2">
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                                <Sun size={12} className="text-amber-500" />
+                                <Moon size={12} className="text-indigo-500" />
+                                Separação por Turno (Dia / Noite)
+                            </p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {([
+                                    { id: 'consolidado', label: 'Consolidado (Abas)', desc: 'Geral + Dia + Noite' },
+                                    { id: 'separado', label: 'Arquivos Separados', desc: '2 arquivos (Dia e Noite)' },
+                                    { id: 'diurno', label: 'Só Dia (Diurno)', desc: 'Apenas turno do dia' },
+                                    { id: 'noturno', label: 'Só Noite (Noturno)', desc: 'Apenas turno da noite' },
+                                ] as const).map(opt => (
+                                    <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => setExportShiftMode(opt.id)}
+                                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                                            exportShiftMode === opt.id
+                                                ? 'bg-orange-500/10 border-orange-500 text-orange-700 shadow-sm'
+                                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div className="text-[11px] font-black leading-tight">{opt.label}</div>
+                                        <div className="text-[9px] font-medium opacity-75 mt-0.5">{opt.desc}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setIsExportModalOpen(false)}
+                                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isExportingWeek}
+                                onClick={() => handleExportWeekExcel(exportShiftMode)}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-50"
+                            >
+                                <Download size={15} />
+                                {isExportingWeek ? 'Exportando...' : 'Baixar Planilha (.XLSX)'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

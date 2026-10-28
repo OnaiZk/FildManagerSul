@@ -796,7 +796,11 @@ export const bulkCreateEmployees = async (employees: Omit<Employee, 'id' | 'stat
 };
 
 export const createAbsence = async (absence: Omit<Absence, 'id'>): Promise<void> => {
-    const { error } = await supabase.from('daily_absences').insert({
+    const normalizedShift = absence.shift && (absence.shift.toLowerCase().includes('noturno') || absence.shift.toLowerCase().includes('noite'))
+        ? 'Noturno'
+        : 'Diurno';
+
+    const payloadWithShift: any = {
         employee_id: absence.employeeId || null,
         employee_name: absence.employeeName,
         date: absence.date,
@@ -804,9 +808,34 @@ export const createAbsence = async (absence: Omit<Absence, 'id'>): Promise<void>
         reason: absence.reason,
         notes: absence.description,
         company_id: absence.companyId,
-        evidence_url: absence.evidenceUrl
-    });
-    if (error) throw error;
+        evidence_url: absence.evidenceUrl,
+        shift: normalizedShift
+    };
+
+    const { error } = await supabase.from('daily_absences').insert(payloadWithShift);
+    if (error) {
+        const isMissingShiftColumn =
+            error.code === '42703' ||
+            error.code === 'PGRST204' ||
+            (error.message && error.message.toLowerCase().includes('shift'));
+
+        if (isMissingShiftColumn) {
+            const fallbackNotes = `[TURNO: ${normalizedShift}] ${absence.description || ''}`.trim();
+            const { error: retryError } = await supabase.from('daily_absences').insert({
+                employee_id: absence.employeeId || null,
+                employee_name: absence.employeeName,
+                date: absence.date,
+                end_date: absence.endDate || absence.date,
+                reason: absence.reason,
+                notes: fallbackNotes,
+                company_id: absence.companyId,
+                evidence_url: absence.evidenceUrl
+            });
+            if (retryError) throw retryError;
+            return;
+        }
+        throw error;
+    }
 };
 
 export const getAbsences = async (companyId: string): Promise<Absence[]> => {
@@ -817,17 +846,25 @@ export const getAbsences = async (companyId: string): Promise<Absence[]> => {
     const { data, error } = await query;
     if (error) throw error;
 
-    return data.map((item: any) => ({
-        id: item.id,
-        employeeId: item.employee_id,
-        employeeName: item.employee_name,
-        date: item.date ? item.date.split('T')[0] : item.date,
-        endDate: item.end_date ? item.end_date.split('T')[0] : item.end_date,
-        reason: item.reason,
-        description: item.notes,
-        companyId: item.company_id,
-        evidenceUrl: item.evidence_url
-    }));
+    return data.map((item: any) => {
+        const rawNotes: string = item.notes || '';
+        const shiftMatch = rawNotes.match(/^\[TURNO:\s*(Diurno|Noturno)\]\s*/i);
+        const extractedShift = item.shift || (shiftMatch ? shiftMatch[1] : undefined);
+        const cleanDescription = shiftMatch ? rawNotes.replace(/^\[TURNO:\s*(Diurno|Noturno)\]\s*/i, '') : item.notes;
+
+        return {
+            id: item.id,
+            employeeId: item.employee_id,
+            employeeName: item.employee_name,
+            date: item.date ? item.date.split('T')[0] : item.date,
+            endDate: item.end_date ? item.end_date.split('T')[0] : item.end_date,
+            reason: item.reason,
+            description: cleanDescription,
+            companyId: item.company_id,
+            evidenceUrl: item.evidence_url,
+            shift: extractedShift
+        };
+    });
 };
 
 export const uploadAbsenceEvidence = async (file: File): Promise<string> => {

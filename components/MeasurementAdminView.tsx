@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AssetMeasurement, User } from '../types';
 import { getAllAssetMeasurements, deleteAssetMeasurement, bulkDeleteAssetMeasurements } from '../api/fieldManagerApi';
-import { Download, Building2, Filter, Calendar, TrendingUp, DollarSign, Search, Trash2, Edit } from 'lucide-react';
-import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
+import { Download, Building2, Filter, Calendar, TrendingUp, DollarSign, Search, Trash2, Edit, Sun, Moon, FileSpreadsheet, X } from 'lucide-react';
+import { createEletromidiaWorkbook, addEletromidiaSheet, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
+import { resolveTimeOrUserShift, ShiftExportMode, ShiftType } from '../utils/shiftUtils';
 
 const PARTNER_COMPANIES = [
     { id: 'gf1', name: 'GF1', color: '#16A34A', logoUrl: '/assets/logo_gf1.png' },
@@ -18,6 +19,14 @@ export const MeasurementAdminView: React.FC<{ currentUser: User; onEdit?: (m: As
     const [loading, setLoading] = useState(true);
     const [selectedCompany, setSelectedCompany] = useState<string>('all');
     const [dateFilter, setDateFilter] = useState('');
+    const [shiftFilter, setShiftFilter] = useState<'all' | 'Diurno' | 'Noturno'>('all');
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [exportShiftMode, setExportShiftMode] = useState<ShiftExportMode>('consolidado');
+    const [isExporting, setIsExporting] = useState(false);
+
+    const resolveMeasurementShift = (m: AssetMeasurement): ShiftType => {
+        return resolveTimeOrUserShift(m.createdAt, m.technicianId, []);
+    };
 
     useEffect(() => {
         loadData();
@@ -88,11 +97,12 @@ export const MeasurementAdminView: React.FC<{ currentUser: User; onEdit?: (m: As
     };
 
     const filteredMeasurements = useMemo(() => {
-        if (!dateFilter) return measurements;
-        return measurements.filter(m =>
-            m.createdAt && m.createdAt.startsWith(dateFilter)
-        );
-    }, [measurements, dateFilter]);
+        return measurements.filter(m => {
+            const matchesDate = !dateFilter || (m.createdAt && m.createdAt.startsWith(dateFilter));
+            const matchesShift = shiftFilter === 'all' || resolveMeasurementShift(m) === shiftFilter;
+            return matchesDate && matchesShift;
+        });
+    }, [measurements, dateFilter, shiftFilter]);
 
     const metrics = useMemo(() => {
         const totalValue = filteredMeasurements.reduce((acc, m) => acc + m.totalValue, 0);
@@ -107,35 +117,22 @@ export const MeasurementAdminView: React.FC<{ currentUser: User; onEdit?: (m: As
         return { totalValue, count, byCompany };
     }, [filteredMeasurements]);
 
-    const handleExport = async () => {
-        const partner = PARTNER_COMPANIES.find(c => c.id === selectedCompany);
-        const logoUrl = partner?.logoUrl || null;
-
-        const title = selectedCompany === 'all'
-            ? 'Medições Consolidadas - Todas as Empresas'
-            : `Medições Consolidadas - ${partner?.name || selectedCompany}`;
-
-        const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
-            title,
-            'Medições',
-            logoUrl
-        );
-
-        // Header
-        const headers = ['Data', 'Empresa', 'Ativo / Local', 'Serviço', 'Etapas', 'Valor Total'];
+    const populateMeasurementsSheet = (worksheet: any, startRow: number, list: AssetMeasurement[]) => {
+        const headers = ['Data', 'Turno', 'Empresa', 'Ativo / Local', 'Serviço', 'Etapas', 'Valor Total'];
         const headerRow = worksheet.getRow(startRow);
         headerRow.values = headers;
         styleHeaderRow(headerRow);
 
-        // Data
-        filteredMeasurements.forEach(m => {
+        list.forEach(m => {
             const companyName = PARTNER_COMPANIES.find(c => c.id === m.companyId)?.name || m.companyId;
             const stagesDisplay = m.itemsSnapshot && m.itemsSnapshot.length > 0
                 ? m.itemsSnapshot.map(item => item.itemCode || item.description).join(', ')
                 : m.stages.join(', ');
+            const shift = resolveMeasurementShift(m);
 
             const row = worksheet.addRow([
                 m.createdAt ? new Date(m.createdAt).toLocaleDateString('pt-BR') : '-',
+                shift === 'Noturno' ? 'Noite (Noturno)' : 'Dia (Diurno)',
                 companyName,
                 `${m.assetCode || m.assetId} - ${m.assetAddress || 'Endereço não informado'}`,
                 m.assetType,
@@ -143,21 +140,88 @@ export const MeasurementAdminView: React.FC<{ currentUser: User; onEdit?: (m: As
                 m.totalValue
             ]);
 
-            // Format Currency Column
-            row.getCell(6).numFmt = '"R$ "#,##0.00';
+            row.getCell(7).numFmt = '"R$ "#,##0.00';
         });
 
-        // Add Total Row
-        const totalRow = worksheet.addRow(['', '', '', '', 'TOTAL GERAL', metrics.totalValue]);
+        const totalVal = list.reduce((acc, m) => acc + m.totalValue, 0);
+        const totalRow = worksheet.addRow(['', '', '', '', '', 'TOTAL GERAL', totalVal]);
         totalRow.font = { bold: true };
-        totalRow.getCell(6).numFmt = '"R$ "#,##0.00';
-        totalRow.getCell(5).alignment = { horizontal: 'right' };
+        totalRow.getCell(7).numFmt = '"R$ "#,##0.00';
+        totalRow.getCell(6).alignment = { horizontal: 'right' };
 
         styleDataRows(worksheet, startRow);
         autoFitColumns(worksheet);
+    };
 
-        const fileName = `Relatorio_Medicoes_${selectedCompany}_${new Date().toISOString().split('T')[0]}`;
-        await saveWorkbook(workbook, fileName);
+    const buildMeasurementsWorkbook = async (list: AssetMeasurement[], titleSuffix: string, includeShiftTabs: boolean) => {
+        const partner = PARTNER_COMPANIES.find(c => c.id === selectedCompany);
+        const logoUrl = partner?.logoUrl || null;
+
+        const baseTitle = selectedCompany === 'all'
+            ? 'Medições Consolidadas - Todas as Empresas'
+            : `Medições Consolidadas - ${partner?.name || selectedCompany}`;
+
+        const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
+            `${baseTitle}${titleSuffix}`,
+            'Medições',
+            logoUrl
+        );
+
+        populateMeasurementsSheet(worksheet, startRow, list);
+
+        if (includeShiftTabs) {
+            const dayList = list.filter(m => resolveMeasurementShift(m) === 'Diurno');
+            const nightList = list.filter(m => resolveMeasurementShift(m) === 'Noturno');
+
+            const { worksheet: wsDay, startRow: srDay } = await addEletromidiaSheet(
+                workbook,
+                `${baseTitle} — Turno Dia (Diurno)`,
+                'Medições - Dia (Diurno)',
+                logoUrl
+            );
+            populateMeasurementsSheet(wsDay, srDay, dayList);
+
+            const { worksheet: wsNight, startRow: srNight } = await addEletromidiaSheet(
+                workbook,
+                `${baseTitle} — Turno Noite (Noturno)`,
+                'Medições - Noite (Noturno)',
+                logoUrl
+            );
+            populateMeasurementsSheet(wsNight, srNight, nightList);
+        }
+
+        return workbook;
+    };
+
+    const handleExport = async (modeOverride?: ShiftExportMode) => {
+        setIsExporting(true);
+        try {
+            const mode = modeOverride || exportShiftMode;
+            const dateStr = new Date().toISOString().split('T')[0];
+            const baseList = measurements.filter(m => !dateFilter || (m.createdAt && m.createdAt.startsWith(dateFilter)));
+            const dayList = baseList.filter(m => resolveMeasurementShift(m) === 'Diurno');
+            const nightList = baseList.filter(m => resolveMeasurementShift(m) === 'Noturno');
+
+            if (mode === 'separado') {
+                const wbDay = await buildMeasurementsWorkbook(dayList, ' — Turno Dia (Diurno)', false);
+                await saveWorkbook(wbDay, `Relatorio_Medicoes_${selectedCompany}_DIA_DIURNO_${dateStr}`);
+
+                const wbNight = await buildMeasurementsWorkbook(nightList, ' — Turno Noite (Noturno)', false);
+                await saveWorkbook(wbNight, `Relatorio_Medicoes_${selectedCompany}_NOITE_NOTURNO_${dateStr}`);
+            } else if (mode === 'diurno') {
+                const wbDay = await buildMeasurementsWorkbook(dayList, ' — Turno Dia (Diurno)', false);
+                await saveWorkbook(wbDay, `Relatorio_Medicoes_${selectedCompany}_DIA_DIURNO_${dateStr}`);
+            } else if (mode === 'noturno') {
+                const wbNight = await buildMeasurementsWorkbook(nightList, ' — Turno Noite (Noturno)', false);
+                await saveWorkbook(wbNight, `Relatorio_Medicoes_${selectedCompany}_NOITE_NOTURNO_${dateStr}`);
+            } else {
+                const wbAll = await buildMeasurementsWorkbook(filteredMeasurements, '', true);
+                await saveWorkbook(wbAll, `Relatorio_Medicoes_${selectedCompany}_CONSOLIDADO_${dateStr}`);
+            }
+            setIsExportModalOpen(false);
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -209,12 +273,42 @@ export const MeasurementAdminView: React.FC<{ currentUser: User; onEdit?: (m: As
                         />
                     </div>
 
+                    <div className="flex items-center bg-slate-50 p-1 rounded-2xl border border-slate-100">
+                        {([
+                            { id: 'all', label: 'Todos' },
+                            { id: 'Diurno', label: 'Dia', icon: Sun },
+                            { id: 'Noturno', label: 'Noite', icon: Moon }
+                        ] as const).map(item => {
+                            const Icon = 'icon' in item ? item.icon : null;
+                            const active = shiftFilter === item.id;
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => setShiftFilter(item.id)}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                        active
+                                            ? item.id === 'Diurno'
+                                                ? 'bg-amber-500 text-white shadow-sm'
+                                                : item.id === 'Noturno'
+                                                ? 'bg-indigo-600 text-white shadow-sm'
+                                                : 'bg-white text-slate-900 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                    {Icon && <Icon size={13} />}
+                                    {item.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+
                     <button
-                        onClick={handleExport}
+                        onClick={() => setIsExportModalOpen(true)}
                         className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-primary-600 transition-all shadow-lg shadow-primary/20"
                     >
                         <Download size={18} />
-                        Exportar
+                        Exportar (Dia/Noite)
                     </button>
                 </div>
             </div>
@@ -369,6 +463,71 @@ export const MeasurementAdminView: React.FC<{ currentUser: User; onEdit?: (m: As
                     </table>
                 </div>
             </div>
+
+            {isExportModalOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl border border-slate-100 w-full max-w-md shadow-2xl p-6 space-y-5">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-black text-slate-900 uppercase flex items-center gap-2">
+                                <FileSpreadsheet className="text-primary" size={20} />
+                                Exportar Medições
+                            </h3>
+                            <button onClick={() => setIsExportModalOpen(false)} className="text-slate-400 hover:text-slate-700">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-100 space-y-2">
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                                <Sun size={12} className="text-amber-500" />
+                                <Moon size={12} className="text-indigo-500" />
+                                Separação por Turno (Dia / Noite)
+                            </p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {([
+                                    { id: 'consolidado', label: 'Consolidado (Abas)', desc: 'Geral + Dia + Noite' },
+                                    { id: 'separado', label: 'Arquivos Separados', desc: '2 arquivos (Dia e Noite)' },
+                                    { id: 'diurno', label: 'Só Dia (Diurno)', desc: 'Apenas turno do dia' },
+                                    { id: 'noturno', label: 'Só Noite (Noturno)', desc: 'Apenas turno da noite' },
+                                ] as const).map(opt => (
+                                    <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => setExportShiftMode(opt.id)}
+                                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                                            exportShiftMode === opt.id
+                                                ? 'bg-primary/10 border-primary text-primary shadow-sm'
+                                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div className="text-[11px] font-black leading-tight">{opt.label}</div>
+                                        <div className="text-[9px] font-medium opacity-75 mt-0.5">{opt.desc}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setIsExportModalOpen(false)}
+                                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isExporting}
+                                onClick={() => handleExport(exportShiftMode)}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-primary text-white shadow-sm disabled:opacity-50"
+                            >
+                                <Download size={15} />
+                                {isExporting ? 'Exportando...' : 'Baixar Planilha (.XLSX)'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

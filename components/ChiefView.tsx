@@ -2,10 +2,12 @@
 import React, { useMemo, useState } from 'react';
 import { User, Task, TaskStatus, Team, UserRole, AssetType, ServiceType } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { MapPin, TrendingUp, Shield, Activity, Download, Building2, Plus, Clock, Box } from 'lucide-react';
+import { MapPin, TrendingUp, Shield, Activity, Download, Building2, Plus, Clock, Box, Sun, Moon, FileSpreadsheet, X } from 'lucide-react';
 import SimpleModal from './SimpleModal';
 import SearchableSelect from './SearchableSelect';
 import { getAssets } from '../api/fieldManagerApi';
+import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
+import { resolveUserShift, ShiftExportMode } from '../utils/shiftUtils';
 
 import EvidenceAuditModal from './EvidenceAuditModal';
 
@@ -25,6 +27,9 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
   const [isAssetLoading, setIsAssetLoading] = useState(false);
 
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportShiftMode, setExportShiftMode] = useState<ShiftExportMode>('consolidado');
+  const [isExporting, setIsExporting] = useState(false);
 
   // Form State
   const [assetType, setAssetType] = useState<AssetType>(AssetType.BUS_SHELTER);
@@ -83,10 +88,89 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
     });
   }, [filteredTasks]);
 
-  const handleExportCSV = () => {
-    const headers = ['ID', 'Ativo', 'Tipo', 'Serviço', 'Status', 'Técnico', 'Empresa', 'Data'];
-    const rows = filteredTasks.map(t => [
+  const populateChiefSheet = (ws: any, sRow: number, list: Task[]) => {
+    const headers = ['ID', 'Data', 'Turno', 'Ativo', 'Tipo', 'Serviço', 'Status', 'Técnico', 'Empresa'];
+    const headerRow = ws.getRow(sRow);
+    headerRow.values = headers;
+    styleHeaderRow(headerRow);
+
+    list.forEach(t => {
+      const shift = resolveUserShift(t.technicianId, users);
+      ws.addRow([
+        t.id,
+        t.scheduledDate,
+        shift === 'Noturno' ? 'Noturno (Noite)' : 'Diurno (Dia)',
+        t.assetId,
+        t.asset?.type || '',
+        t.serviceType,
+        t.status,
+        users.find(u => u.id === t.technicianId)?.name || 'N/A',
+        t.companyId
+      ]);
+    });
+
+    styleDataRows(ws, sRow);
+    autoFitColumns(ws);
+  };
+
+  const buildChiefWorkbook = async (list: Task[], shiftLabel: string, includeShiftTabs: boolean) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
+      `SLA Report Executivo (${shiftLabel}) - ${todayStr}`,
+      'SLA Report'
+    );
+
+    populateChiefSheet(worksheet, startRow, list);
+
+    if (includeShiftTabs) {
+      const dList = list.filter(t => resolveUserShift(t.technicianId, users) === 'Diurno');
+      const nList = list.filter(t => resolveUserShift(t.technicianId, users) === 'Noturno');
+
+      const wsDia = workbook.addWorksheet('OS - Dia (Diurno)');
+      populateChiefSheet(wsDia, 1, dList);
+
+      const wsNoite = workbook.addWorksheet('OS - Noite (Noturno)');
+      populateChiefSheet(wsNoite, 1, nList);
+    }
+
+    return workbook;
+  };
+
+  const handleExportExcel = async (modeOverride?: ShiftExportMode) => {
+    const mode = modeOverride || exportShiftMode;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const diurnoTasks = filteredTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Diurno');
+    const noturnoTasks = filteredTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Noturno');
+
+    setIsExporting(true);
+    try {
+      if (mode === 'diurno') {
+        const wb = await buildChiefWorkbook(diurnoTasks, 'Diurno (Dia)', false);
+        await saveWorkbook(wb, `SLA_Report_Dia_Diurno_${todayStr}`);
+      } else if (mode === 'noturno') {
+        const wb = await buildChiefWorkbook(noturnoTasks, 'Noturno (Noite)', false);
+        await saveWorkbook(wb, `SLA_Report_Noite_Noturno_${todayStr}`);
+      } else if (mode === 'separado') {
+        const wbDia = await buildChiefWorkbook(diurnoTasks, 'Diurno (Dia)', false);
+        await saveWorkbook(wbDia, `SLA_Report_Dia_Diurno_${todayStr}`);
+        await new Promise(resolve => setTimeout(resolve, 350));
+        const wbNoite = await buildChiefWorkbook(noturnoTasks, 'Noturno (Noite)', false);
+        await saveWorkbook(wbNoite, `SLA_Report_Noite_Noturno_${todayStr}`);
+      } else {
+        const wb = await buildChiefWorkbook(filteredTasks, 'Consolidado (Dia e Noite)', true);
+        await saveWorkbook(wb, `SLA_Report_Consolidado_${todayStr}`);
+      }
+      setIsExportModalOpen(false);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const downloadChiefCSV = (list: Task[], suffix: string) => {
+    const headers = ['ID', 'Turno', 'Ativo', 'Tipo', 'Serviço', 'Status', 'Técnico', 'Empresa', 'Data'];
+    const rows = list.map(t => [
       t.id,
+      resolveUserShift(t.technicianId, users),
       t.assetId,
       t.asset?.type || '',
       t.serviceType,
@@ -96,16 +180,35 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
       t.scheduledDate
     ]);
 
-    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const csvContent = '\uFEFF' + [headers, ...rows].map(e => e.join(";")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", `relatorio_eletromidia_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `relatorio_eletromidia_${suffix}${new Date().toISOString().split('T')[0]}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExportCSV = async (modeOverride?: ShiftExportMode) => {
+    const mode = modeOverride || exportShiftMode;
+    const diurnoTasks = filteredTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Diurno');
+    const noturnoTasks = filteredTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Noturno');
+
+    if (mode === 'diurno') {
+      downloadChiefCSV(diurnoTasks, 'Dia_Diurno_');
+    } else if (mode === 'noturno') {
+      downloadChiefCSV(noturnoTasks, 'Noite_Noturno_');
+    } else if (mode === 'separado') {
+      downloadChiefCSV(diurnoTasks, 'Dia_Diurno_');
+      await new Promise(resolve => setTimeout(resolve, 350));
+      downloadChiefCSV(noturnoTasks, 'Noite_Noturno_');
+    } else {
+      downloadChiefCSV(filteredTasks, '');
+    }
+    setIsExportModalOpen(false);
   };
 
   // Definição de todas as empresas parceiras
@@ -217,11 +320,11 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
 
 
           <button
-            onClick={handleExportCSV}
+            onClick={() => setIsExportModalOpen(true)}
             className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 bg-slate-100 text-slate-600 font-black rounded-xl md:rounded-2xl hover:bg-slate-200 transition-all active:scale-95"
           >
             <Download size={18} />
-            <span className="text-xs md:text-sm">SLA Report</span>
+            <span className="text-xs md:text-sm">SLA Report (Dia/Noite)</span>
           </button>
         </div>
       </div>
@@ -411,6 +514,99 @@ const ChiefView: React.FC<Props> = ({ chief, tasks, teams, users, onCreateTask }
         tasks={tasks}
         users={users}
       />
+
+      {isExportModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div>
+                <h3 className="text-base font-black text-slate-900 tracking-tight">Exportar SLA Report Executivo</h3>
+                <p className="text-xs font-bold text-slate-400">Escolha o modo de separação por turno (Dia e Noite)</p>
+              </div>
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="p-2 rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                    <Sun size={18} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Dia (Diurno)</p>
+                    <p className="text-xs font-black text-slate-800">
+                      {filteredTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Diurno').length} OS
+                    </p>
+                  </div>
+                </div>
+                <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+                    <Moon size={18} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">Noite (Noturno)</p>
+                    <p className="text-xs font-black text-slate-800">
+                      {filteredTasks.filter(t => resolveUserShift(t.technicianId, users) === 'Noturno').length} OS
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Formato / Turno para Exportação</label>
+                {[
+                  { id: 'consolidado', title: 'Consolidado (Com Abas Dia e Noite)', desc: '1 arquivo com aba geral + aba Dia + aba Noite' },
+                  { id: 'separado', title: 'Arquivos Separados (Dia e Noite)', desc: 'Baixa 2 arquivos separados: 1 de Dia e 1 de Noite' },
+                  { id: 'diurno', title: 'Somente Turno Dia (Diurno)', desc: 'Apenas registros do turno Diurno' },
+                  { id: 'noturno', title: 'Somente Turno Noite (Noturno)', desc: 'Apenas registros do turno Noturno' }
+                ].map(opt => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setExportShiftMode(opt.id as ShiftExportMode)}
+                    className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                      exportShiftMode === opt.id
+                        ? 'bg-primary/5 border-primary text-slate-900 shadow-sm'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    <div>
+                      <p className="text-xs font-black text-slate-800">{opt.title}</p>
+                      <p className="text-[10px] font-bold text-slate-400">{opt.desc}</p>
+                    </div>
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${exportShiftMode === opt.id ? 'border-primary' : 'border-slate-300'}`}>
+                      {exportShiftMode === opt.id && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => handleExportExcel(exportShiftMode)}
+                  disabled={isExporting}
+                  className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary-600 text-white px-5 py-3.5 rounded-2xl font-black text-xs transition-all shadow-md disabled:opacity-50"
+                >
+                  <FileSpreadsheet size={16} />
+                  <span>{isExporting ? 'Gerando Excel...' : 'Exportar Excel (.XLSX)'}</span>
+                </button>
+                <button
+                  onClick={() => handleExportCSV(exportShiftMode)}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3 rounded-2xl font-black text-xs transition-all"
+                >
+                  <Download size={15} />
+                  <span>Exportar em .CSV</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

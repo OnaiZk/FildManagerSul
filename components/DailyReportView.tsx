@@ -6,6 +6,7 @@ import { getTeams, getAllUsers, getDailyReportByTeamAndDate, upsertDailyReport, 
 import { supabase } from '../api/supabaseClient';
 import { ClipboardList, Users, Calendar, Plus, Save, History, X, AlertCircle, Download, Trash2, Car, Smartphone, Search, CheckCircle, Edit2, Clock, Unlock, Lock, Sun, Moon } from 'lucide-react';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
+import { resolveAbsenceShift, resolveUserShift } from '../utils/shiftUtils';
 
 const getLocalDateString = (d: Date = new Date()) => {
     const year = d.getFullYear();
@@ -392,6 +393,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 employeeName: employee.name,
                 date,
                 reason: reason as any,
+                shift: report?.shift || resolveUserShift(employeeId, users),
                 companyId: currentUser.companyId
             });
             loadReport();
@@ -414,6 +416,34 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             console.error('Error deleting absence:', err);
             alert('Erro ao remover falta.');
         }
+    };
+
+    const populateAbsencesWorksheet = (
+        ws: any,
+        headerRowIndex: number,
+        absencesList: Absence[]
+    ) => {
+        const headerRow = ws.getRow(headerRowIndex);
+        headerRow.values = ['Data', 'Turno', 'Colaborador', 'Cargo', 'Motivo', 'Período', 'Observações', 'Comprovante'];
+        styleHeaderRow(headerRow);
+
+        absencesList.forEach(a => {
+            const emp = users.find(u => u.id === a.employeeId || u.name === a.employeeName);
+            const absShift = resolveAbsenceShift(a, users);
+            ws.addRow([
+                a.date,
+                absShift === 'Noturno' ? 'Noturno (Noite)' : 'Diurno (Dia)',
+                a.employeeName,
+                emp?.role?.replace('PARCEIRO_', '') || 'Técnico',
+                a.reason,
+                a.endDate && a.endDate !== a.date ? `${a.date} até ${a.endDate}` : a.date,
+                a.description || '',
+                a.evidenceUrl ? 'SIM' : 'NÃO'
+            ]);
+        });
+
+        styleDataRows(ws, headerRowIndex);
+        autoFitColumns(ws);
     };
 
     const populateActivitiesWorksheet = (
@@ -486,6 +516,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
     const buildDailyWorkbook = async (
         reportsList: DailyReport[],
+        absencesList: Absence[],
         shiftTitle: string,
         teamName: string,
         includeShiftTabs: boolean
@@ -524,6 +555,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         // --- ABAS SEPARADAS POR TURNO (QUANDO CONSOLIDADO) ---
         const diurnoList = reportsList.filter(r => (r.shift || 'Diurno') !== 'Noturno');
         const noturnoList = reportsList.filter(r => r.shift === 'Noturno');
+        const diurnoAbsList = absencesList.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+        const noturnoAbsList = absencesList.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
 
         if (includeShiftTabs) {
             const wsDiurno = workbook.addWorksheet('Atividades - Dia (Diurno)');
@@ -531,6 +564,18 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
             const wsNoturno = workbook.addWorksheet('Atividades - Noite (Noturno)');
             populateActivitiesWorksheet(wsNoturno, 1, noturnoList, maxTechs);
+        }
+
+        // --- SHEET: FALTAS E AUSÊNCIAS ---
+        const wsAbsences = workbook.addWorksheet('Faltas e Ausências');
+        populateAbsencesWorksheet(wsAbsences, 1, absencesList);
+
+        if (includeShiftTabs) {
+            const wsAbsDia = workbook.addWorksheet('Faltas - Dia (Diurno)');
+            populateAbsencesWorksheet(wsAbsDia, 1, diurnoAbsList);
+
+            const wsAbsNoite = workbook.addWorksheet('Faltas - Noite (Noturno)');
+            populateAbsencesWorksheet(wsAbsNoite, 1, noturnoAbsList);
         }
 
         // --- SHEET: PARTICIPANTES ---
@@ -541,7 +586,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         styleHeaderRow(mHeaderRow);
 
         participants.forEach(m => {
-            const absence = absences.find(a => a.employeeId === m.id);
+            const absence = absencesList.find(a => a.employeeId === m.id);
             const isDriver = reportsList.some(r => r.driverId === m.id);
             const memberShifts = new Set<string>();
             reportsList.forEach(r => {
@@ -593,7 +638,9 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             ['Peças/Qtd - Noite (Noturno)', noturnoQuantityCount],
             ['Relatórios Consolidados', reportsList.length],
             ['Participantes Únicos', participants.length],
-            ['Ausências Registradas', absences.length],
+            ['Ausências Registradas (Total)', absencesList.length],
+            ['Ausências - Dia (Diurno)', diurnoAbsList.length],
+            ['Ausências - Noite (Noturno)', noturnoAbsList.length],
             ['Rota', report?.route || ''],
             ['Observação', report?.notes || '']
         ];
@@ -614,33 +661,35 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
         const diurnoReports = allDayReports.filter(r => (r.shift || 'Diurno') !== 'Noturno');
         const noturnoReports = allDayReports.filter(r => r.shift === 'Noturno');
+        const diurnoAbsences = absences.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+        const noturnoAbsences = absences.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
 
         setIsExportingDay(true);
         try {
             if (mode === 'diurno') {
-                if (!diurnoReports.some(r => r.activities.length > 0)) {
-                    alert('Nenhuma atividade registrada no turno Diurno (Dia) para esta data.');
+                if (!diurnoReports.some(r => r.activities.length > 0) && diurnoAbsences.length === 0) {
+                    alert('Nenhuma atividade ou falta registrada no turno Diurno (Dia) para esta data.');
                     return;
                 }
-                const wb = await buildDailyWorkbook(diurnoReports, 'Diurno (Dia)', teamName, false);
+                const wb = await buildDailyWorkbook(diurnoReports, diurnoAbsences, 'Diurno (Dia)', teamName, false);
                 await saveWorkbook(wb, `Relatorio_Dia_Diurno_${date}_${safeTeamName}`);
             } else if (mode === 'noturno') {
-                if (!noturnoReports.some(r => r.activities.length > 0)) {
-                    alert('Nenhuma atividade registrada no turno Noturno (Noite) para esta data.');
+                if (!noturnoReports.some(r => r.activities.length > 0) && noturnoAbsences.length === 0) {
+                    alert('Nenhuma atividade ou falta registrada no turno Noturno (Noite) para esta data.');
                     return;
                 }
-                const wb = await buildDailyWorkbook(noturnoReports, 'Noturno (Noite)', teamName, false);
+                const wb = await buildDailyWorkbook(noturnoReports, noturnoAbsences, 'Noturno (Noite)', teamName, false);
                 await saveWorkbook(wb, `Relatorio_Noite_Noturno_${date}_${safeTeamName}`);
             } else if (mode === 'separado') {
-                const wbDia = await buildDailyWorkbook(diurnoReports, 'Diurno (Dia)', teamName, false);
+                const wbDia = await buildDailyWorkbook(diurnoReports, diurnoAbsences, 'Diurno (Dia)', teamName, false);
                 await saveWorkbook(wbDia, `Relatorio_Dia_Diurno_${date}_${safeTeamName}`);
 
                 await new Promise(resolve => setTimeout(resolve, 350));
 
-                const wbNoite = await buildDailyWorkbook(noturnoReports, 'Noturno (Noite)', teamName, false);
+                const wbNoite = await buildDailyWorkbook(noturnoReports, noturnoAbsences, 'Noturno (Noite)', teamName, false);
                 await saveWorkbook(wbNoite, `Relatorio_Noite_Noturno_${date}_${safeTeamName}`);
             } else {
-                const wb = await buildDailyWorkbook(allDayReports, 'Consolidado (Dia e Noite)', teamName, true);
+                const wb = await buildDailyWorkbook(allDayReports, absences, 'Consolidado (Dia e Noite)', teamName, true);
                 await saveWorkbook(wb, `Relatorio_${date}_${safeTeamName}`);
             }
             setIsDayExportModalOpen(false);
@@ -692,6 +741,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
         const diurnoList = reportsList.filter(r => (r.shift || 'Diurno') !== 'Noturno');
         const noturnoList = reportsList.filter(r => r.shift === 'Noturno');
+        const diurnoMonthAbs = monthAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+        const noturnoMonthAbs = monthAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
 
         if (includeShiftTabs) {
             const wsDiurno = workbook.addWorksheet('Atividades - Dia (Diurno)');
@@ -699,6 +750,18 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
             const wsNoturno = workbook.addWorksheet('Atividades - Noite (Noturno)');
             populateActivitiesWorksheet(wsNoturno, 1, noturnoList, maxTechs);
+        }
+
+        // --- SHEET: FALTAS E AUSÊNCIAS ---
+        const wsAbsences = workbook.addWorksheet('Faltas e Ausências');
+        populateAbsencesWorksheet(wsAbsences, 1, monthAbsences);
+
+        if (includeShiftTabs) {
+            const wsAbsDia = workbook.addWorksheet('Faltas - Dia (Diurno)');
+            populateAbsencesWorksheet(wsAbsDia, 1, diurnoMonthAbs);
+
+            const wsAbsNoite = workbook.addWorksheet('Faltas - Noite (Noturno)');
+            populateAbsencesWorksheet(wsAbsNoite, 1, noturnoMonthAbs);
         }
 
         // --- SHEET: RESUMO DIÁRIO ---
@@ -712,7 +775,9 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             'Total Relatórios',
             'Total Lançamentos',
             'Total Quantidade',
-            'Ausências'
+            'Ausências (Dia)',
+            'Ausências (Noite)',
+            'Total Ausências'
         ];
         const dHeaderRow = wsDailySummary.getRow(1);
         dHeaderRow.values = dailyHeader;
@@ -726,6 +791,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             reports: number;
             activities: number;
             quantity: number;
+            absencesDia: number;
+            absencesNoite: number;
             absences: number;
         }>();
 
@@ -738,6 +805,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 reports: 0,
                 activities: 0,
                 quantity: 0,
+                absencesDia: 0,
+                absencesNoite: 0,
                 absences: 0
             };
             const reportQty = r.activities.reduce((sum, a) => sum + a.quantity, 0);
@@ -764,8 +833,15 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                     reports: 0,
                     activities: 0,
                     quantity: 0,
+                    absencesDia: 0,
+                    absencesNoite: 0,
                     absences: 0
                 };
+                if (resolveAbsenceShift(a, users) === 'Noturno') {
+                    current.absencesNoite += 1;
+                } else {
+                    current.absencesDia += 1;
+                }
                 current.absences += 1;
                 dailyData.set(a.date, current);
             }
@@ -783,6 +859,8 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                     data.reports,
                     data.activities,
                     data.quantity,
+                    data.absencesDia,
+                    data.absencesNoite,
                     data.absences
                 ]);
             });
@@ -819,7 +897,9 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             ['Lançamentos - Noite (Noturno)', noturnoActivities],
             ['Peças/Quantidade - Noite (Noturno)', noturnoQuantity],
             ['Participantes Únicos', participants.length],
-            ['Total de Ausências', monthAbsences.length]
+            ['Total de Ausências (Geral)', monthAbsences.length],
+            ['Ausências - Dia (Diurno)', diurnoMonthAbs.length],
+            ['Ausências - Noite (Noturno)', noturnoMonthAbs.length]
         ];
 
         summaryData.forEach(row => wsSummary.addRow(row));
@@ -834,12 +914,6 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         try {
             // Fetch all reports for the selected month
             const monthReports = await getDailyReportsForMonth(currentUser.companyId, selectedYear, selectedMonth);
-
-            if (monthReports.length === 0) {
-                alert('Nenhum relatório encontrado para o mês selecionado.');
-                setIsExportingMonth(false);
-                return;
-            }
 
             const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
             const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
@@ -858,6 +932,12 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 console.warn('Could not fetch absences, continuing without them:', absenceError);
             }
 
+            if (monthReports.length === 0 && monthAbsences.length === 0) {
+                alert('Nenhum relatório ou falta encontrado para o mês selecionado.');
+                setIsExportingMonth(false);
+                return;
+            }
+
             // Month names in Portuguese
             const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
                 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -865,30 +945,32 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
             const diurnoMonthReports = monthReports.filter(r => (r.shift || 'Diurno') !== 'Noturno');
             const noturnoMonthReports = monthReports.filter(r => r.shift === 'Noturno');
+            const diurnoMonthAbsences = monthAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+            const noturnoMonthAbsences = monthAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
 
             if (monthExportMode === 'diurno') {
-                if (diurnoMonthReports.length === 0) {
-                    alert('Nenhum relatório do turno Diurno (Dia) encontrado para o mês selecionado.');
+                if (diurnoMonthReports.length === 0 && diurnoMonthAbsences.length === 0) {
+                    alert('Nenhum relatório ou falta do turno Diurno (Dia) encontrado para o mês selecionado.');
                     setIsExportingMonth(false);
                     return;
                 }
-                const wb = await buildMonthlyWorkbook(diurnoMonthReports, monthAbsences, monthName, startDate, endDate, 'Diurno (Dia)', false);
+                const wb = await buildMonthlyWorkbook(diurnoMonthReports, diurnoMonthAbsences, monthName, startDate, endDate, 'Diurno (Dia)', false);
                 await saveWorkbook(wb, `Relatorio_Mensal_Dia_Diurno_${monthName}_${selectedYear}`);
             } else if (monthExportMode === 'noturno') {
-                if (noturnoMonthReports.length === 0) {
-                    alert('Nenhum relatório do turno Noturno (Noite) encontrado para o mês selecionado.');
+                if (noturnoMonthReports.length === 0 && noturnoMonthAbsences.length === 0) {
+                    alert('Nenhum relatório ou falta do turno Noturno (Noite) encontrado para o mês selecionado.');
                     setIsExportingMonth(false);
                     return;
                 }
-                const wb = await buildMonthlyWorkbook(noturnoMonthReports, monthAbsences, monthName, startDate, endDate, 'Noturno (Noite)', false);
+                const wb = await buildMonthlyWorkbook(noturnoMonthReports, noturnoMonthAbsences, monthName, startDate, endDate, 'Noturno (Noite)', false);
                 await saveWorkbook(wb, `Relatorio_Mensal_Noite_Noturno_${monthName}_${selectedYear}`);
             } else if (monthExportMode === 'separado') {
-                const wbDia = await buildMonthlyWorkbook(diurnoMonthReports, monthAbsences, monthName, startDate, endDate, 'Diurno (Dia)', false);
+                const wbDia = await buildMonthlyWorkbook(diurnoMonthReports, diurnoMonthAbsences, monthName, startDate, endDate, 'Diurno (Dia)', false);
                 await saveWorkbook(wbDia, `Relatorio_Mensal_Dia_Diurno_${monthName}_${selectedYear}`);
 
                 await new Promise(resolve => setTimeout(resolve, 350));
 
-                const wbNoite = await buildMonthlyWorkbook(noturnoMonthReports, monthAbsences, monthName, startDate, endDate, 'Noturno (Noite)', false);
+                const wbNoite = await buildMonthlyWorkbook(noturnoMonthReports, noturnoMonthAbsences, monthName, startDate, endDate, 'Noturno (Noite)', false);
                 await saveWorkbook(wbNoite, `Relatorio_Mensal_Noite_Noturno_${monthName}_${selectedYear}`);
             } else {
                 const wb = await buildMonthlyWorkbook(monthReports, monthAbsences, monthName, startDate, endDate, 'Consolidado (Dia e Noite)', true);

@@ -34,10 +34,16 @@ import {
     X,
     Upload,
     Wrench,
-    Check
+    Check,
+    Sun,
+    Moon,
+    Download,
+    FileSpreadsheet
 } from 'lucide-react';
 import SimpleModal from './SimpleModal';
 import VehicleImportModal from './VehicleImportModal';
+import { createEletromidiaWorkbook, addEletromidiaSheet, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
+import { normalizeShift, ShiftExportMode, ShiftType } from '../utils/shiftUtils';
 
 interface VehicleControlViewProps {
     currentUser: User;
@@ -56,6 +62,10 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isCheckinModalOpen, setIsCheckinModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [shiftFilter, setShiftFilter] = useState<'all' | 'Diurno' | 'Noturno'>('all');
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [exportShiftMode, setExportShiftMode] = useState<ShiftExportMode>('consolidado');
+    const [isExportingReport, setIsExportingReport] = useState(false);
     const [availableEmployees, setAvailableEmployees] = useState<Employee[]>([]);
     const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
 
@@ -276,11 +286,24 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
         }
     };
 
-    const filteredLogs = logs.filter(log =>
-        log.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.model.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const resolveLogShift = (log: VehicleLog): ShiftType => {
+        const norm = normalizeShift(log.shift);
+        if (norm) return norm;
+        if (log.occurrenceTime) {
+            const h = new Date(log.occurrenceTime).getHours();
+            if (h >= 18 || h < 6) return 'Noturno';
+        }
+        return 'Diurno';
+    };
+
+    const filteredLogs = logs.filter(log => {
+        const matchesSearch =
+            log.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            log.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            log.model.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesShift = shiftFilter === 'all' || resolveLogShift(log) === shiftFilter;
+        return matchesSearch && matchesShift;
+    });
 
     const filteredVehicles = vehicles.filter(v =>
         v.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -294,8 +317,125 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
         return { active, maintenance };
     }, [logs, vehicles]);
 
+    const populateVehicleLogsSheet = (worksheet: any, startRow: number, list: VehicleLog[]) => {
+        const headers = ['Data/Hora', 'Turno', 'Período Original', 'Motorista', 'Acompanhantes', 'Veículo', 'Placa', 'KM Inicial', 'KM Final', 'KM Rodados', 'Status'];
+        const headerRow = worksheet.getRow(startRow);
+        headerRow.values = headers;
+        styleHeaderRow(headerRow);
+
+        list.forEach(log => {
+            const shift = resolveLogShift(log);
+            const kmDriven = log.endKm && log.startKm ? log.endKm - log.startKm : '-';
+            worksheet.addRow([
+                log.occurrenceTime ? new Date(log.occurrenceTime).toLocaleString('pt-BR') : '-',
+                shift === 'Noturno' ? 'Noite (Noturno)' : 'Dia (Diurno)',
+                log.shift || '-',
+                log.userName,
+                log.additionalCollaborators?.join(', ') || '-',
+                log.model,
+                log.plate,
+                log.startKm ?? '-',
+                log.endKm ?? '-',
+                kmDriven,
+                log.isActive ? 'Em Uso' : 'Finalizado'
+            ]);
+        });
+
+        styleDataRows(worksheet, startRow);
+        autoFitColumns(worksheet);
+    };
+
+    const buildVehicleWorkbook = async (list: VehicleLog[], titleSuffix: string, includeShiftTabs: boolean) => {
+        const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
+            `Relatório de Controle de Frota${titleSuffix}`,
+            'Registros de Uso'
+        );
+
+        populateVehicleLogsSheet(worksheet, startRow, list);
+
+        if (includeShiftTabs) {
+            const dayLogs = list.filter(l => resolveLogShift(l) === 'Diurno');
+            const nightLogs = list.filter(l => resolveLogShift(l) === 'Noturno');
+
+            const { worksheet: wsDay, startRow: srDay } = await addEletromidiaSheet(
+                workbook,
+                'Controle de Frota — Turno Dia (Diurno)',
+                'Frota - Dia (Diurno)'
+            );
+            populateVehicleLogsSheet(wsDay, srDay, dayLogs);
+
+            const { worksheet: wsNight, startRow: srNight } = await addEletromidiaSheet(
+                workbook,
+                'Controle de Frota — Turno Noite (Noturno)',
+                'Frota - Noite (Noturno)'
+            );
+            populateVehicleLogsSheet(wsNight, srNight, nightLogs);
+        }
+
+        // Also add Frota Cadastrada tab
+        const { worksheet: wsFleet, startRow: srFleet } = await addEletromidiaSheet(
+            workbook,
+            'Cadastro da Frota de Veículos',
+            'Frota Cadastrada'
+        );
+        const fleetHeader = wsFleet.getRow(srFleet);
+        fleetHeader.values = ['Tag', 'Marca', 'Modelo', 'Tipo', 'Placa', 'KM Atual', 'Última Revisão (KM)', 'Status'];
+        styleHeaderRow(fleetHeader);
+        filteredVehicles.forEach(v => {
+            wsFleet.addRow([
+                v.tag || '-',
+                v.brand,
+                v.model,
+                v.type,
+                v.plate,
+                v.currentKm,
+                v.lastMaintenanceKm,
+                v.status
+            ]);
+        });
+        styleDataRows(wsFleet, srFleet);
+        autoFitColumns(wsFleet);
+
+        return workbook;
+    };
+
+    const handleExportVehicleReport = async (modeOverride?: ShiftExportMode) => {
+        setIsExportingReport(true);
+        try {
+            const mode = modeOverride || exportShiftMode;
+            const dateStr = new Date().toISOString().split('T')[0];
+            const baseLogs = logs.filter(log =>
+                log.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                log.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                log.model.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+            const dayLogs = baseLogs.filter(l => resolveLogShift(l) === 'Diurno');
+            const nightLogs = baseLogs.filter(l => resolveLogShift(l) === 'Noturno');
+
+            if (mode === 'separado') {
+                const wbDay = await buildVehicleWorkbook(dayLogs, ' — Turno Dia (Diurno)', false);
+                await saveWorkbook(wbDay, `relatorio-frota-DIA-DIURNO-${dateStr}`);
+
+                const wbNight = await buildVehicleWorkbook(nightLogs, ' — Turno Noite (Noturno)', false);
+                await saveWorkbook(wbNight, `relatorio-frota-NOITE-NOTURNO-${dateStr}`);
+            } else if (mode === 'diurno') {
+                const wbDay = await buildVehicleWorkbook(dayLogs, ' — Turno Dia (Diurno)', false);
+                await saveWorkbook(wbDay, `relatorio-frota-DIA-DIURNO-${dateStr}`);
+            } else if (mode === 'noturno') {
+                const wbNight = await buildVehicleWorkbook(nightLogs, ' — Turno Noite (Noturno)', false);
+                await saveWorkbook(wbNight, `relatorio-frota-NOITE-NOTURNO-${dateStr}`);
+            } else {
+                const wbAll = await buildVehicleWorkbook(filteredLogs, '', true);
+                await saveWorkbook(wbAll, `relatorio-frota-CONSOLIDADO-${dateStr}`);
+            }
+            setIsExportModalOpen(false);
+        } finally {
+            setIsExportingReport(false);
+        }
+    };
+
     const generateReport = () => {
-        window.print();
+        setIsExportModalOpen(true);
     };
 
     return (
@@ -353,22 +493,56 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                 </div>
             </div>
 
-            {/* Tabs */}
-            <div className="flex gap-2 p-1 bg-slate-100 rounded-[18px] w-fit print:hidden">
-                <button
-                    onClick={() => setActiveTab('registros')}
-                    className={`px-8 py-3 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'registros' ? 'bg-white text-primary shadow-sm' : 'text-slate-400 hover:text-slate-600'
-                        }`}
-                >
-                    Registros de Uso
-                </button>
-                <button
-                    onClick={() => setActiveTab('frota')}
-                    className={`px-8 py-3 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'frota' ? 'bg-white text-primary shadow-sm' : 'text-slate-400 hover:text-slate-600'
-                        }`}
-                >
-                    Frota da Empresa
-                </button>
+            {/* Tabs & Shift Filter */}
+            <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
+                <div className="flex gap-2 p-1 bg-slate-100 rounded-[18px] w-fit">
+                    <button
+                        onClick={() => setActiveTab('registros')}
+                        className={`px-8 py-3 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'registros' ? 'bg-white text-primary shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                            }`}
+                    >
+                        Registros de Uso
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('frota')}
+                        className={`px-8 py-3 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'frota' ? 'bg-white text-primary shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                            }`}
+                    >
+                        Frota da Empresa
+                    </button>
+                </div>
+
+                {activeTab === 'registros' && (
+                    <div className="flex items-center bg-slate-100 p-1 rounded-[18px]">
+                        {([
+                            { id: 'all', label: 'Todos os Turnos' },
+                            { id: 'Diurno', label: 'Dia (Diurno)', icon: Sun },
+                            { id: 'Noturno', label: 'Noite (Noturno)', icon: Moon }
+                        ] as const).map(item => {
+                            const Icon = 'icon' in item ? item.icon : null;
+                            const active = shiftFilter === item.id;
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => setShiftFilter(item.id)}
+                                    className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                        active
+                                            ? item.id === 'Diurno'
+                                                ? 'bg-amber-500 text-white shadow-sm'
+                                                : item.id === 'Noturno'
+                                                ? 'bg-indigo-600 text-white shadow-sm'
+                                                : 'bg-white text-slate-900 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                    {Icon && <Icon size={13} />}
+                                    {item.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 print:hidden">
@@ -1034,6 +1208,74 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
                         </button>
                     </form>
                 </SimpleModal>
+            )}
+            {isExportModalOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl border border-[#E6E8EC] w-full max-w-md shadow-2xl p-6 space-y-5">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-black text-slate-900 uppercase flex items-center gap-2">
+                                <FileSpreadsheet className="text-primary" size={20} />
+                                Exportar Relatório de Frota
+                            </h3>
+                            <button onClick={() => setIsExportModalOpen(false)} className="text-slate-400 hover:text-slate-700">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-100 space-y-2">
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                                <Sun size={12} className="text-amber-500" />
+                                <Moon size={12} className="text-indigo-500" />
+                                Separação por Turno (Dia / Noite)
+                            </p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {([
+                                    { id: 'consolidado', label: 'Consolidado (Abas)', desc: 'Geral + Dia + Noite' },
+                                    { id: 'separado', label: 'Arquivos Separados', desc: '2 arquivos (Dia e Noite)' },
+                                    { id: 'diurno', label: 'Só Dia (Diurno)', desc: 'Apenas turno do dia' },
+                                    { id: 'noturno', label: 'Só Noite (Noturno)', desc: 'Apenas turno da noite' },
+                                ] as const).map(opt => (
+                                    <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => setExportShiftMode(opt.id)}
+                                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                                            exportShiftMode === opt.id
+                                                ? 'bg-primary/10 border-primary text-primary shadow-sm'
+                                                : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div className="text-[11px] font-black leading-tight">{opt.label}</div>
+                                        <div className="text-[9px] font-medium opacity-75 mt-0.5">{opt.desc}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2 pt-2">
+                            <button
+                                type="button"
+                                disabled={isExportingReport}
+                                onClick={() => handleExportVehicleReport(exportShiftMode)}
+                                className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-50"
+                            >
+                                <Download size={16} />
+                                {isExportingReport ? 'Exportando...' : 'Baixar Planilha Excel (.XLSX)'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsExportModalOpen(false);
+                                    setTimeout(() => window.print(), 150);
+                                }}
+                                className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold border border-slate-200 text-slate-700 hover:bg-slate-50"
+                            >
+                                <FileText size={15} />
+                                Imprimir Visualização Atual
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

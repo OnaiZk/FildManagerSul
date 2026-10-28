@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Asset, User, TaskEvidence, AssetMeasurement, UserRole, Task, TaskStatus } from '../types';
 import { getAssets, getEvidenceByAssetId, getMeasurementPrices, saveAssetMeasurement, updateAssetMeasurement, getTasksByCompanyId, upsertAsset } from '../api/fieldManagerApi';
-import { Search, Building2, CheckCircle2, ChevronDown, Download, Plus, Trash2, Calculator, Save, Image as ImageIcon, X, Upload, Check, ChevronRight, ChevronLeft, LayoutDashboard, DollarSign, ListTodo, MapPin, Calendar, AlertCircle, Clock } from 'lucide-react';
+import { Search, Building2, CheckCircle2, ChevronDown, Download, Plus, Trash2, Calculator, Save, Image as ImageIcon, X, Upload, Check, ChevronRight, ChevronLeft, LayoutDashboard, DollarSign, ListTodo, MapPin, Calendar, AlertCircle, Clock, Sun, Moon } from 'lucide-react';
 
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
 import { MeasurementAdminView } from './MeasurementAdminView';
@@ -85,6 +85,7 @@ export const MeasurementView: React.FC<{ currentUser: User }> = ({ currentUser }
 
     // Edit State
     const [editingMeasurement, setEditingMeasurement] = useState<AssetMeasurement | null>(null);
+    const [measurementShift, setMeasurementShift] = useState<'Diurno' | 'Noturno'>('Diurno');
 
     useEffect(() => {
         loadAssets();
@@ -262,13 +263,14 @@ export const MeasurementView: React.FC<{ currentUser: User }> = ({ currentUser }
     const exportToExcel = async () => {
         if (!selectedAsset || !selectedAssetType) return;
 
+        const shiftLabel = measurementShift === 'Noturno' ? 'Noite (Noturno)' : 'Dia (Diurno)';
         const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
-            `Medição de Ativo - ${selectedAsset.code}`,
-            'Medição'
+            `Medição de Ativo - ${selectedAsset.code} (${shiftLabel})`,
+            `Medição - ${measurementShift}`
         );
 
         const headers = [
-            'Empresa', 'Código Ativo', 'Endereço', 'Cidade',
+            'Turno', 'Empresa', 'Código Ativo', 'Endereço', 'Cidade',
             'Tipo de Ativo', 'Etapa', 'Descrição', 'Unidade',
             'Valor Unitário', 'Total'
         ];
@@ -283,6 +285,7 @@ export const MeasurementView: React.FC<{ currentUser: User }> = ({ currentUser }
             const qty = Number(quantity);
 
             worksheet.addRow([
+                shiftLabel,
                 companies.find(c => c.id === selectedCompany)?.name,
                 selectedAsset.code,
                 selectedAsset.location.address,
@@ -296,14 +299,15 @@ export const MeasurementView: React.FC<{ currentUser: User }> = ({ currentUser }
             ]);
         });
 
-        const totalRow = worksheet.addRow(['', '', '', '', '', '', '', '', 'TOTAL', calculateTotal()]);
+        const totalRow = worksheet.addRow(['', '', '', '', '', '', '', '', '', 'TOTAL', calculateTotal()]);
         totalRow.font = { bold: true };
-        totalRow.getCell(10).numFmt = '"R$ "#,##0.00';
+        totalRow.getCell(11).numFmt = '"R$ "#,##0.00';
 
         styleDataRows(worksheet, startRow);
         autoFitColumns(worksheet);
 
-        const fileName = `Medicao_${selectedAsset.code}_${new Date().toISOString().split('T')[0]}`;
+        const shiftSuffix = measurementShift === 'Noturno' ? 'NOITE_NOTURNO' : 'DIA_DIURNO';
+        const fileName = `Medicao_${selectedAsset.code}_${shiftSuffix}_${new Date().toISOString().split('T')[0]}`;
         await saveWorkbook(workbook, fileName);
     };
 
@@ -753,7 +757,33 @@ export const MeasurementView: React.FC<{ currentUser: User }> = ({ currentUser }
                                         <ChevronRight size={20} />
                                     </button>
                                 ) : (
-                                    <div className="flex gap-4">
+                                    <div className="flex gap-4 items-center">
+                                        <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200">
+                                            <button
+                                                type="button"
+                                                onClick={() => setMeasurementShift('Diurno')}
+                                                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                                    measurementShift === 'Diurno'
+                                                        ? 'bg-amber-500 text-white shadow-sm'
+                                                        : 'text-slate-500 hover:text-slate-800'
+                                                }`}
+                                            >
+                                                <Sun size={13} />
+                                                Dia
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setMeasurementShift('Noturno')}
+                                                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                                    measurementShift === 'Noturno'
+                                                        ? 'bg-indigo-600 text-white shadow-sm'
+                                                        : 'text-slate-500 hover:text-slate-800'
+                                                }`}
+                                            >
+                                                <Moon size={13} />
+                                                Noite
+                                            </button>
+                                        </div>
                                         <button
                                             onClick={exportToExcel}
                                             className="flex items-center gap-3 px-8 py-5 bg-secondary text-primary rounded-2xl font-black uppercase tracking-widest hover:scale-105 transition-all"

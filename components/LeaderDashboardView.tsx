@@ -43,6 +43,7 @@ import {
   Moon
 } from 'lucide-react';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
+import { resolveAbsenceShift } from '../utils/shiftUtils';
 
 interface LeaderDashboardViewProps {
   currentUser: User;
@@ -235,19 +236,24 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
   // Filtered absences
   const filteredAbsences = useMemo(() => {
-    if (!searchTerm.trim()) return dayAbsences;
-    const term = searchTerm.toLowerCase();
     return dayAbsences.filter(a => {
+      const absShift = resolveAbsenceShift(a, users);
+      if (shiftFilter !== 'all' && absShift !== shiftFilter) {
+        return false;
+      }
+      if (!searchTerm.trim()) return true;
+      const term = searchTerm.toLowerCase();
       const name = a.employeeName || '';
       const reason = a.reason || '';
       const desc = a.description || '';
       return (
         name.toLowerCase().includes(term) ||
         reason.toLowerCase().includes(term) ||
-        desc.toLowerCase().includes(term)
+        desc.toLowerCase().includes(term) ||
+        absShift.toLowerCase().includes(term)
       );
     });
-  }, [dayAbsences, searchTerm]);
+  }, [dayAbsences, searchTerm, shiftFilter, users]);
 
   // Delete handlers
   const handleDeleteReport = async (reportId: string) => {
@@ -338,8 +344,111 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
     autoFitColumns(ws);
   };
 
+  const populateLeaderAbsencesSheet = (ws: any, headerRowIndex: number, absencesList: Absence[]) => {
+    const absHeader = ws.getRow(headerRowIndex);
+    absHeader.values = ['Colaborador', 'Turno', 'Motivo', 'Data Início', 'Data Fim', 'Observações / Justificativa', 'Tem Comprovante'];
+    styleHeaderRow(absHeader);
+
+    absencesList.forEach(a => {
+      const absShift = resolveAbsenceShift(a, users);
+      ws.addRow([
+        a.employeeName,
+        absShift === 'Noturno' ? 'Noturno (Noite)' : 'Diurno (Dia)',
+        a.reason,
+        a.date,
+        a.endDate || a.date,
+        a.description || '',
+        a.evidenceUrl ? 'SIM' : 'NÃO'
+      ]);
+    });
+
+    styleDataRows(ws, headerRowIndex);
+    autoFitColumns(ws);
+  };
+
+  const buildLeaderAbsencesOnlyWorkbook = async (
+    absencesList: Absence[],
+    shiftLabel: string,
+    includeShiftTabs: boolean
+  ) => {
+    const { workbook, worksheet: wsAbsences, startRow } = await createEletromidiaWorkbook(
+      `Relatório de Faltas e Ausências (${shiftLabel}) - ${selectedDate}`,
+      'Faltas e Ausências'
+    );
+
+    populateLeaderAbsencesSheet(wsAbsences, startRow, absencesList);
+
+    const diurnoAbs = absencesList.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+    const noturnoAbs = absencesList.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
+
+    if (includeShiftTabs) {
+      const wsAbsDia = workbook.addWorksheet('Faltas - Dia (Diurno)');
+      populateLeaderAbsencesSheet(wsAbsDia, 1, diurnoAbs);
+
+      const wsAbsNoite = workbook.addWorksheet('Faltas - Noite (Noturno)');
+      populateLeaderAbsencesSheet(wsAbsNoite, 1, noturnoAbs);
+    }
+
+    const wsResumo = workbook.addWorksheet('Resumo de Faltas');
+    const rHeader = wsResumo.getRow(1);
+    rHeader.values = ['Indicador', 'Total'];
+    styleHeaderRow(rHeader);
+    [
+      ['Data do Relatório', selectedDate],
+      ['Turno Exportado', shiftLabel],
+      ['Total de Faltas / Ausências', absencesList.length],
+      ['Faltas - Dia (Diurno)', diurnoAbs.length],
+      ['Faltas - Noite (Noturno)', noturnoAbs.length],
+      ['Atestados', absencesList.filter(a => a.reason === 'Atestado').length],
+      ['Faltas Injustificadas', absencesList.filter(a => a.reason === 'Falta Injustificada').length],
+      ['Faltas Justificadas', absencesList.filter(a => a.reason === 'Falta Justificada').length]
+    ].forEach(row => wsResumo.addRow(row));
+    styleDataRows(wsResumo, 1);
+    autoFitColumns(wsResumo);
+
+    return workbook;
+  };
+
+  const handleExportAbsencesOnlyXLSX = async (modeOverride?: 'consolidado' | 'separado' | 'diurno' | 'noturno') => {
+    const mode = modeOverride || exportShiftMode;
+    if (dayAbsences.length === 0) {
+      alert('Nenhuma falta ou ausência registrada nesta data para exportar.');
+      return;
+    }
+
+    const diurnoAbsences = dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+    const noturnoAbsences = dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
+
+    setIsExporting(true);
+    try {
+      if (mode === 'diurno') {
+        const wb = await buildLeaderAbsencesOnlyWorkbook(diurnoAbsences, 'Diurno (Dia)', false);
+        await saveWorkbook(wb, `Relatorio_Faltas_Dia_Diurno_${selectedDate}`);
+      } else if (mode === 'noturno') {
+        const wb = await buildLeaderAbsencesOnlyWorkbook(noturnoAbsences, 'Noturno (Noite)', false);
+        await saveWorkbook(wb, `Relatorio_Faltas_Noite_Noturno_${selectedDate}`);
+      } else if (mode === 'separado') {
+        const wbDia = await buildLeaderAbsencesOnlyWorkbook(diurnoAbsences, 'Diurno (Dia)', false);
+        await saveWorkbook(wbDia, `Relatorio_Faltas_Dia_Diurno_${selectedDate}`);
+        await new Promise(resolve => setTimeout(resolve, 350));
+        const wbNoite = await buildLeaderAbsencesOnlyWorkbook(noturnoAbsences, 'Noturno (Noite)', false);
+        await saveWorkbook(wbNoite, `Relatorio_Faltas_Noite_Noturno_${selectedDate}`);
+      } else {
+        const wb = await buildLeaderAbsencesOnlyWorkbook(dayAbsences, 'Consolidado (Dia e Noite)', true);
+        await saveWorkbook(wb, `Relatorio_Faltas_Consolidado_${selectedDate}`);
+      }
+      setIsExportModalOpen(false);
+    } catch (err) {
+      console.error('Error exporting absences XLSX:', err);
+      alert('Erro ao exportar planilha de faltas.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const buildLeaderWorkbook = async (
     reportsList: DailyReport[],
+    absencesList: Absence[],
     shiftLabel: string,
     includeShiftTabs: boolean
   ) => {
@@ -352,6 +461,8 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
     const diurnoList = reportsList.filter(r => (r.shift || 'Diurno') !== 'Noturno');
     const noturnoList = reportsList.filter(r => r.shift === 'Noturno');
+    const diurnoAbs = absencesList.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+    const noturnoAbs = absencesList.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
 
     if (includeShiftTabs) {
       const wsDia = workbook.addWorksheet('Atividades - Dia (Diurno)');
@@ -363,23 +474,15 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
     // Sheet: Faltas e Ausências
     const wsAbsences = workbook.addWorksheet('Faltas e Ausências');
-    const absHeader = wsAbsences.getRow(1);
-    absHeader.values = ['Colaborador', 'Motivo', 'Data Início', 'Data Fim', 'Observações / Justificativa', 'Tem Comprovante'];
-    styleHeaderRow(absHeader);
+    populateLeaderAbsencesSheet(wsAbsences, 1, absencesList);
 
-    dayAbsences.forEach(a => {
-      wsAbsences.addRow([
-        a.employeeName,
-        a.reason,
-        a.date,
-        a.endDate || a.date,
-        a.description || '',
-        a.evidenceUrl ? 'SIM' : 'NÃO'
-      ]);
-    });
+    if (includeShiftTabs) {
+      const wsAbsDia = workbook.addWorksheet('Faltas - Dia (Diurno)');
+      populateLeaderAbsencesSheet(wsAbsDia, 1, diurnoAbs);
 
-    styleDataRows(wsAbsences, 1);
-    autoFitColumns(wsAbsences);
+      const wsAbsNoite = workbook.addWorksheet('Faltas - Noite (Noturno)');
+      populateLeaderAbsencesSheet(wsAbsNoite, 1, noturnoAbs);
+    }
 
     // Sheet: Resumo Geral
     const wsSummary = workbook.addWorksheet('Resumo do Dia');
@@ -407,7 +510,9 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
       ['Atividades - Noite (Noturno)', noturnoActivitiesCount],
       ['Peças/Volumes - Noite (Noturno)', noturnoPiecesQuantity],
       ['Colaboradores Ativos no Dia', activeTechniciansToday.length],
-      ['Faltas / Ausências Registradas', dayAbsences.length],
+      ['Faltas / Ausências Registradas (Total)', absencesList.length],
+      ['Faltas / Ausências - Dia (Diurno)', diurnoAbs.length],
+      ['Faltas / Ausências - Noite (Noturno)', noturnoAbs.length],
       ['Veículos em Operação', activeVehiclesToday.length]
     ];
 
@@ -428,33 +533,35 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
     const diurnoReports = dailyReports.filter(r => (r.shift || 'Diurno') !== 'Noturno');
     const noturnoReports = dailyReports.filter(r => r.shift === 'Noturno');
+    const diurnoAbsences = dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+    const noturnoAbsences = dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
 
     setIsExporting(true);
     try {
       if (mode === 'diurno') {
-        if (diurnoReports.length === 0 && dayAbsences.length === 0) {
-          alert('Nenhum relatório do turno Diurno (Dia) encontrado para esta data.');
+        if (diurnoReports.length === 0 && diurnoAbsences.length === 0) {
+          alert('Nenhum relatório ou falta do turno Diurno (Dia) encontrado para esta data.');
           return;
         }
-        const wb = await buildLeaderWorkbook(diurnoReports, 'Diurno (Dia)', false);
+        const wb = await buildLeaderWorkbook(diurnoReports, diurnoAbsences, 'Diurno (Dia)', false);
         await saveWorkbook(wb, `Painel_Lider_Dia_Diurno_${selectedDate}`);
       } else if (mode === 'noturno') {
-        if (noturnoReports.length === 0 && dayAbsences.length === 0) {
-          alert('Nenhum relatório do turno Noturno (Noite) encontrado para esta data.');
+        if (noturnoReports.length === 0 && noturnoAbsences.length === 0) {
+          alert('Nenhum relatório ou falta do turno Noturno (Noite) encontrado para esta data.');
           return;
         }
-        const wb = await buildLeaderWorkbook(noturnoReports, 'Noturno (Noite)', false);
+        const wb = await buildLeaderWorkbook(noturnoReports, noturnoAbsences, 'Noturno (Noite)', false);
         await saveWorkbook(wb, `Painel_Lider_Noite_Noturno_${selectedDate}`);
       } else if (mode === 'separado') {
-        const wbDia = await buildLeaderWorkbook(diurnoReports, 'Diurno (Dia)', false);
+        const wbDia = await buildLeaderWorkbook(diurnoReports, diurnoAbsences, 'Diurno (Dia)', false);
         await saveWorkbook(wbDia, `Painel_Lider_Dia_Diurno_${selectedDate}`);
 
         await new Promise(resolve => setTimeout(resolve, 350));
 
-        const wbNoite = await buildLeaderWorkbook(noturnoReports, 'Noturno (Noite)', false);
+        const wbNoite = await buildLeaderWorkbook(noturnoReports, noturnoAbsences, 'Noturno (Noite)', false);
         await saveWorkbook(wbNoite, `Painel_Lider_Noite_Noturno_${selectedDate}`);
       } else {
-        const wb = await buildLeaderWorkbook(dailyReports, 'Consolidado (Dia e Noite)', true);
+        const wb = await buildLeaderWorkbook(dailyReports, dayAbsences, 'Consolidado (Dia e Noite)', true);
         await saveWorkbook(wb, `Painel_Lider_Consolidado_${selectedDate}`);
       }
       setIsExportModalOpen(false);
@@ -467,7 +574,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
   };
 
   // Export CSV
-  const downloadCSVForReports = (reportsList: DailyReport[], fileSuffix: string) => {
+  const downloadCSVForReports = (reportsList: DailyReport[], absencesList: Absence[], fileSuffix: string) => {
     const rows: string[][] = [
       ['Tipo', 'Data', 'Turno', 'Responsável', 'Veículo', 'OPEC', 'Detalhe / Atividade', 'Quantidade / Motivo', 'Observações']
     ];
@@ -489,11 +596,12 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
       });
     });
 
-    dayAbsences.forEach(a => {
+    absencesList.forEach(a => {
+      const absShift = resolveAbsenceShift(a, users);
       rows.push([
         'FALTA / AUSÊNCIA',
         a.date,
-        'N/A',
+        absShift,
         a.employeeName,
         'N/A',
         'N/A',
@@ -522,17 +630,19 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
     const diurnoReports = dailyReports.filter(r => (r.shift || 'Diurno') !== 'Noturno');
     const noturnoReports = dailyReports.filter(r => r.shift === 'Noturno');
+    const diurnoAbsences = dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+    const noturnoAbsences = dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
 
     if (mode === 'diurno') {
-      downloadCSVForReports(diurnoReports, 'Dia_Diurno_');
+      downloadCSVForReports(diurnoReports, diurnoAbsences, 'Dia_Diurno_');
     } else if (mode === 'noturno') {
-      downloadCSVForReports(noturnoReports, 'Noite_Noturno_');
+      downloadCSVForReports(noturnoReports, noturnoAbsences, 'Noite_Noturno_');
     } else if (mode === 'separado') {
-      downloadCSVForReports(diurnoReports, 'Dia_Diurno_');
+      downloadCSVForReports(diurnoReports, diurnoAbsences, 'Dia_Diurno_');
       await new Promise(resolve => setTimeout(resolve, 350));
-      downloadCSVForReports(noturnoReports, 'Noite_Noturno_');
+      downloadCSVForReports(noturnoReports, noturnoAbsences, 'Noite_Noturno_');
     } else {
-      downloadCSVForReports(dailyReports, '');
+      downloadCSVForReports(dailyReports, dayAbsences, '');
     }
     setIsExportModalOpen(false);
   };
@@ -660,7 +770,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
             <p className="text-xs font-bold text-slate-500 mt-2 flex items-center gap-1.5 truncate">
               {dayAbsences.length > 0 ? (
                 <span className="text-amber-700 font-bold">
-                  {dayAbsences.filter(a => a.reason === 'Atestado').length} atestados • {dayAbsences.filter(a => a.reason.includes('Injustificada')).length} faltas
+                  {dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno').length} Dia • {dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno').length} Noite
                 </span>
               ) : (
                 <span className="text-emerald-600 font-bold">100% de presença registrada</span>
@@ -780,7 +890,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
           <div className="flex items-center gap-3 flex-wrap">
             
             {/* Shift Filter (Todos / Dia / Noite) */}
-            {activeTab === 'reports' && (
+            {(activeTab === 'reports' || activeTab === 'absences') && (
               <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-[#E6E8EC] text-xs font-black">
                 <button
                   onClick={() => setShiftFilter('all')}
@@ -803,6 +913,16 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                   Noite
                 </button>
               </div>
+            )}
+
+            {activeTab === 'absences' && (
+              <button
+                onClick={() => setIsExportModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black shadow-sm transition-all"
+              >
+                <FileSpreadsheet size={14} />
+                <span>Exportar Faltas (Dia / Noite)</span>
+              </button>
             )}
 
             {/* Quick date switches */}
@@ -1068,6 +1188,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                 <thead>
                   <tr className="border-b border-[#E6E8EC] text-[10px] font-black uppercase text-slate-400 tracking-wider">
                     <th className="py-3 px-4">Colaborador</th>
+                    <th className="py-3 px-4">Turno</th>
                     <th className="py-3 px-4">Motivo / Tipo</th>
                     <th className="py-3 px-4">Período</th>
                     <th className="py-3 px-4">Observações / Justificativa</th>
@@ -1078,6 +1199,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                 <tbody className="divide-y divide-[#EEF0F3] text-xs font-semibold text-slate-700">
                   {filteredAbsences.map((absence) => {
                     const employeeUser = users.find(u => u.id === absence.employeeId || u.name === absence.employeeName);
+                    const absShift = resolveAbsenceShift(absence, users);
                     return (
                       <tr key={absence.id} className="hover:bg-slate-50/80 transition-colors">
                         
@@ -1096,6 +1218,19 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                               </span>
                             </div>
                           </div>
+                        </td>
+
+                        {/* Turno */}
+                        <td className="py-4 px-4 whitespace-nowrap">
+                          {absShift === 'Noturno' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[10px] font-black uppercase">
+                              <Moon size={11} /> Noite (Noturno)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-[10px] font-black uppercase">
+                              <Sun size={11} /> Dia (Diurno)
+                            </span>
+                          )}
                         </td>
 
                         {/* Motivo */}
@@ -1493,7 +1628,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                   <div>
                     <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Dia (Diurno)</p>
                     <p className="text-xs font-black text-slate-800">
-                      {dailyReports.filter(r => (r.shift || 'Diurno') !== 'Noturno').length} relatórios
+                      {dailyReports.filter(r => (r.shift || 'Diurno') !== 'Noturno').length} rel. • {dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno').length} faltas
                     </p>
                   </div>
                 </div>
@@ -1505,7 +1640,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                   <div>
                     <p className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">Noite (Noturno)</p>
                     <p className="text-xs font-black text-slate-800">
-                      {dailyReports.filter(r => r.shift === 'Noturno').length} relatórios
+                      {dailyReports.filter(r => r.shift === 'Noturno').length} rel. • {dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno').length} faltas
                     </p>
                   </div>
                 </div>
@@ -1597,12 +1732,29 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                     {isExporting
                       ? 'Gerando Excel...'
                       : exportShiftMode === 'separado'
-                      ? 'Exportar Excel (.XLSX) - Dia e Noite Separados'
+                      ? 'Exportar Painel Completo (.XLSX) - Dia e Noite Separados'
                       : exportShiftMode === 'diurno'
-                      ? 'Exportar Excel (.XLSX) - Apenas Dia'
+                      ? 'Exportar Painel Completo (.XLSX) - Apenas Dia'
                       : exportShiftMode === 'noturno'
-                      ? 'Exportar Excel (.XLSX) - Apenas Noite'
-                      : 'Exportar Excel (.XLSX) Consolidado'}
+                      ? 'Exportar Painel Completo (.XLSX) - Apenas Noite'
+                      : 'Exportar Painel Completo (.XLSX) Consolidado'}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => handleExportAbsencesOnlyXLSX(exportShiftMode)}
+                  disabled={isExporting}
+                  className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-5 py-3 rounded-2xl font-black text-xs transition-all shadow-sm disabled:opacity-50"
+                >
+                  <UserX size={15} />
+                  <span>
+                    {exportShiftMode === 'separado'
+                      ? 'Exportar Só Relatório de Faltas (.XLSX) - Dia e Noite Separados'
+                      : exportShiftMode === 'diurno'
+                      ? 'Exportar Só Relatório de Faltas (.XLSX) - Apenas Dia'
+                      : exportShiftMode === 'noturno'
+                      ? 'Exportar Só Relatório de Faltas (.XLSX) - Apenas Noite'
+                      : 'Exportar Só Relatório de Faltas (.XLSX) Consolidado'}
                   </span>
                 </button>
 

@@ -196,6 +196,7 @@ export interface Absence {
   description?: string;
   companyId: string;
   evidenceUrl?: string;
+  shift?: 'Diurno' | 'Noturno' | string;
 }
 
 export interface OpecItem {

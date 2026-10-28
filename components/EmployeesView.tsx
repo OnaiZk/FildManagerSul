@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { User, Employee, UserRole, Absence } from '../types';
 import { getEmployees, bulkCreateEmployees, deleteEmployeeInvite, createAbsence, getAbsences, deleteAbsence, bulkDeleteInvites, uploadAbsenceEvidence } from '../api/fieldManagerApi';
-import { Users, Upload, Search, Download, Trash2, Mail, CheckCircle2, Clock, AlertCircle, CalendarOff, Plus, ChevronUp, ChevronDown, Filter, Eye, FileText, RotateCcw } from 'lucide-react';
+import { Users, Upload, Search, Download, Trash2, Mail, CheckCircle2, Clock, AlertCircle, CalendarOff, Plus, ChevronUp, ChevronDown, Filter, Eye, FileText, RotateCcw, Sun, Moon, FileSpreadsheet } from 'lucide-react';
 import readXlsxFile from 'read-excel-file';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
+import { resolveAbsenceShift, normalizeShift, ShiftExportMode } from '../utils/shiftUtils';
 
 interface EmployeesViewProps {
     currentUser: User;
@@ -21,10 +22,11 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
     const [absences, setAbsences] = useState<Absence[]>([]);
     const [isAbsenceModalOpen, setIsAbsenceModalOpen] = useState(false);
     const [selectedEmployeeForAbsence, setSelectedEmployeeForAbsence] = useState<Employee | null>(null);
-    const [absenceForm, setAbsenceForm] = useState<{ date: string; endDate?: string; reason: string; description: string; evidenceFile: File | null; evidenceUrl: string }>({
+    const [absenceForm, setAbsenceForm] = useState<{ date: string; endDate?: string; reason: string; shift: 'Diurno' | 'Noturno'; description: string; evidenceFile: File | null; evidenceUrl: string }>({
         date: new Date().toISOString().split('T')[0],
         endDate: new Date().toISOString().split('T')[0],
         reason: 'Falta Injustificada',
+        shift: 'Diurno',
         description: '',
         evidenceFile: null,
         evidenceUrl: ''
@@ -46,6 +48,8 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [reportMonth, setReportMonth] = useState<number>(new Date().getMonth() + 1);
     const [reportYear, setReportYear] = useState<number>(new Date().getFullYear());
+    const [reportExportMode, setReportExportMode] = useState<ShiftExportMode>('consolidado');
+    const [isExportingReport, setIsExportingReport] = useState(false);
 
     const [isAddEmployeeModalOpen, setIsAddEmployeeModalOpen] = useState(false);
     const [addEmployeeForm, setAddEmployeeForm] = useState({
@@ -112,6 +116,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
             date: new Date().toISOString().split('T')[0],
             endDate: new Date().toISOString().split('T')[0],
             reason: 'Falta Injustificada',
+            shift: normalizeShift(employee.shift),
             description: '',
             evidenceFile: null,
             evidenceUrl: ''
@@ -149,6 +154,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                 date: absenceForm.date,
                 endDate: (absenceForm.reason === 'Férias' || absenceForm.reason === 'Afastamento') ? absenceForm.endDate : absenceForm.date,
                 reason: absenceForm.reason as any,
+                shift: absenceForm.shift,
                 description: absenceForm.description,
                 companyId: currentUser.companyId,
                 evidenceUrl: evidenceUrl
@@ -243,51 +249,40 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
         document.body.removeChild(link);
     };
 
-    const handleExportAbsences = async () => {
-        const filteredAbsences = absences.filter(a => {
-            const [year, month, day] = a.date.split('-');
-            return parseInt(month, 10) === reportMonth && parseInt(year, 10) === reportYear;
-        });
+    const periodAbsences = absences.filter(a => {
+        const [year, month] = a.date.split('-');
+        return parseInt(month, 10) === reportMonth && parseInt(year, 10) === reportYear;
+    });
+    const diurnoPeriodAbsences = periodAbsences.filter(a => resolveAbsenceShift(a, employees) === 'Diurno');
+    const noturnoPeriodAbsences = periodAbsences.filter(a => resolveAbsenceShift(a, employees) === 'Noturno');
 
-        if (filteredAbsences.length === 0) {
-            alert('Nenhuma ausência encontrada para o período selecionado.');
-            return;
-        }
-
-        const monthName = new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2000, reportMonth - 1));
-        const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
-            `Relatório de Ausências - ${monthName} / ${reportYear}`,
-            'Ausências'
-        );
-
-        // Header row
+    const populateAbsencesSheet = (ws: any, sRow: number, list: Absence[]) => {
         const headers = [
-            'Data', 'Funcionário', 'Matrícula/ID', 'Cargo', 'Turno',
+            'Data', 'Turno', 'Funcionário', 'Matrícula/ID', 'Cargo',
             'Líder', 'Motivo', 'Observação', 'Possui Comprovante', 'URL Comprovante'
         ];
-        const headerRow = worksheet.getRow(startRow);
+        const headerRow = ws.getRow(sRow);
         headerRow.values = headers;
         styleHeaderRow(headerRow);
 
-        // Data rows
-        filteredAbsences.forEach(a => {
-            const employee = employees.find(e => e.id === a.employeeId);
-            
-            const formatPtBr = (dStr: string) => {
-                const [y, m, d] = dStr.split('-');
-                return `${d}/${m}/${y}`;
-            };
+        const formatPtBr = (dStr: string) => {
+            const [y, m, d] = dStr.split('-');
+            return `${d}/${m}/${y}`;
+        };
 
+        list.forEach(a => {
+            const employee = employees.find(e => e.id === a.employeeId || e.name.toLowerCase() === a.employeeName?.toLowerCase());
+            const resolvedShift = resolveAbsenceShift(a, employees);
             const dateStr = a.endDate && a.endDate !== a.date
                 ? `${formatPtBr(a.date)} - ${formatPtBr(a.endDate)}`
                 : formatPtBr(a.date);
 
-            worksheet.addRow([
+            ws.addRow([
                 dateStr,
+                resolvedShift === 'Noturno' ? 'Noturno (Noite)' : 'Diurno (Dia)',
                 a.employeeName,
                 employee?.code || '-',
                 employee?.role.replace('PARCEIRO_', '').replace('_', ' ') || '-',
-                employee?.shift || '-',
                 employee?.leaderName || '-',
                 a.reason,
                 a.description || '-',
@@ -296,12 +291,89 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
             ]);
         });
 
-        styleDataRows(worksheet, startRow);
-        autoFitColumns(worksheet);
+        styleDataRows(ws, sRow);
+        autoFitColumns(ws);
+    };
 
-        const fileName = `Relatorio_Ausencias_${monthName}_${reportYear}`;
-        await saveWorkbook(workbook, fileName);
-        setIsReportModalOpen(false);
+    const buildAbsencesWorkbook = async (list: Absence[], titleLabel: string, includeShiftTabs: boolean) => {
+        const monthName = new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2000, reportMonth - 1));
+        const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
+            `Relatório de Faltas e Ausências (${titleLabel}) - ${monthName} / ${reportYear}`,
+            'Ausências'
+        );
+
+        populateAbsencesSheet(worksheet, startRow, list);
+
+        if (includeShiftTabs) {
+            const dList = list.filter(a => resolveAbsenceShift(a, employees) === 'Diurno');
+            const nList = list.filter(a => resolveAbsenceShift(a, employees) === 'Noturno');
+
+            const wsDia = workbook.addWorksheet('Faltas - Dia (Diurno)');
+            populateAbsencesSheet(wsDia, 1, dList);
+
+            const wsNoite = workbook.addWorksheet('Faltas - Noite (Noturno)');
+            populateAbsencesSheet(wsNoite, 1, nList);
+        }
+
+        // Aba Resumo de Faltas
+        const wsResumo = workbook.addWorksheet('Resumo de Faltas');
+        const rHeader = wsResumo.getRow(1);
+        rHeader.values = ['Indicador / Motivo', 'Dia (Diurno)', 'Noite (Noturno)', 'Total'];
+        styleHeaderRow(rHeader);
+
+        const dTotal = list.filter(a => resolveAbsenceShift(a, employees) === 'Diurno').length;
+        const nTotal = list.filter(a => resolveAbsenceShift(a, employees) === 'Noturno').length;
+        wsResumo.addRow(['Total Geral de Ausências', dTotal, nTotal, list.length]);
+
+        const reasons = ['Falta Injustificada', 'Falta Justificada', 'Atestado', 'Day Off', 'Banco de Horas', 'Férias', 'Afastamento', 'Outros'];
+        reasons.forEach(reason => {
+            const rDia = list.filter(a => a.reason === reason && resolveAbsenceShift(a, employees) === 'Diurno').length;
+            const rNoite = list.filter(a => a.reason === reason && resolveAbsenceShift(a, employees) === 'Noturno').length;
+            if (rDia + rNoite > 0) {
+                wsResumo.addRow([reason, rDia, rNoite, rDia + rNoite]);
+            }
+        });
+
+        styleDataRows(wsResumo, 1);
+        autoFitColumns(wsResumo);
+
+        return workbook;
+    };
+
+    const handleExportAbsences = async () => {
+        if (periodAbsences.length === 0) {
+            alert('Nenhuma ausência encontrada para o período selecionado.');
+            return;
+        }
+
+        setIsExportingReport(true);
+        try {
+            const monthName = new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2000, reportMonth - 1));
+
+            if (reportExportMode === 'consolidado') {
+                const wb = await buildAbsencesWorkbook(periodAbsences, 'Consolidado Dia e Noite', true);
+                await saveWorkbook(wb, `Relatorio_Faltas_Consolidado_${monthName}_${reportYear}`);
+            } else if (reportExportMode === 'separado') {
+                const wbDia = await buildAbsencesWorkbook(diurnoPeriodAbsences, 'Turno Dia - Diurno', false);
+                await saveWorkbook(wbDia, `Relatorio_Faltas_Dia_Diurno_${monthName}_${reportYear}`);
+
+                const wbNoite = await buildAbsencesWorkbook(noturnoPeriodAbsences, 'Turno Noite - Noturno', false);
+                await saveWorkbook(wbNoite, `Relatorio_Faltas_Noite_Noturno_${monthName}_${reportYear}`);
+            } else if (reportExportMode === 'diurno') {
+                const wbDia = await buildAbsencesWorkbook(diurnoPeriodAbsences, 'Turno Dia - Diurno', false);
+                await saveWorkbook(wbDia, `Relatorio_Faltas_Dia_Diurno_${monthName}_${reportYear}`);
+            } else if (reportExportMode === 'noturno') {
+                const wbNoite = await buildAbsencesWorkbook(noturnoPeriodAbsences, 'Turno Noite - Noturno', false);
+                await saveWorkbook(wbNoite, `Relatorio_Faltas_Noite_Noturno_${monthName}_${reportYear}`);
+            }
+
+            setIsReportModalOpen(false);
+        } catch (err) {
+            console.error('Erro ao exportar ausências:', err);
+            alert('Erro ao exportar planilha de ausências.');
+        } finally {
+            setIsExportingReport(false);
+        }
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -887,23 +959,52 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                         <p className="text-[#5E636E] text-sm mb-6">Colaborador: <strong className="text-[#141518]">{selectedEmployeeForAbsence?.name}</strong></p>
 
                         <form onSubmit={handleSubmitAbsence} className="space-y-4">
-                            <div>
-                                <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Motivo da Ausência</label>
-                                <select
-                                    required
-                                    className="ooh-input py-2.5 text-sm font-medium"
-                                    value={absenceForm.reason}
-                                    onChange={e => setAbsenceForm({ ...absenceForm, reason: e.target.value })}
-                                >
-                                    <option value="Falta Injustificada">Falta Injustificada</option>
-                                    <option value="Falta Justificada">Falta Justificada</option>
-                                    <option value="Day Off">Day Off</option>
-                                    <option value="Atestado">Atestado</option>
-                                    <option value="Banco de Horas">Banco de Horas</option>
-                                    <option value="Férias">Férias</option>
-                                    <option value="Afastamento">Afastamento</option>
-                                    <option value="Outros">Outros</option>
-                                </select>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Motivo da Ausência</label>
+                                    <select
+                                        required
+                                        className="ooh-input py-2.5 text-sm font-medium"
+                                        value={absenceForm.reason}
+                                        onChange={e => setAbsenceForm({ ...absenceForm, reason: e.target.value })}
+                                    >
+                                        <option value="Falta Injustificada">Falta Injustificada</option>
+                                        <option value="Falta Justificada">Falta Justificada</option>
+                                        <option value="Day Off">Day Off</option>
+                                        <option value="Atestado">Atestado</option>
+                                        <option value="Banco de Horas">Banco de Horas</option>
+                                        <option value="Férias">Férias</option>
+                                        <option value="Afastamento">Afastamento</option>
+                                        <option value="Outros">Outros</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Turno da Falta / Ausência</label>
+                                    <div className="grid grid-cols-2 gap-1.5 bg-[#F4F5F7] p-1 rounded-xl border border-[#E4E7EC]">
+                                        <button
+                                            type="button"
+                                            onClick={() => setAbsenceForm({ ...absenceForm, shift: 'Diurno' })}
+                                            className={`py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                                                absenceForm.shift === 'Diurno'
+                                                    ? 'bg-amber-500 text-white shadow-sm'
+                                                    : 'text-[#5E636E] hover:text-[#141518]'
+                                            }`}
+                                        >
+                                            <Sun size={13} /> Dia
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAbsenceForm({ ...absenceForm, shift: 'Noturno' })}
+                                            className={`py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                                                absenceForm.shift === 'Noturno'
+                                                    ? 'bg-indigo-900 text-white shadow-sm'
+                                                    : 'text-[#5E636E] hover:text-[#141518]'
+                                            }`}
+                                        >
+                                            <Moon size={13} /> Noite
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
@@ -1008,7 +1109,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
             )}
             {isReportModalOpen && (
                 <div className="fixed inset-0 bg-[#141518]/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative">
+                    <div className="ooh-card shadow-2xl p-7 max-w-lg w-full relative max-h-[90vh] overflow-y-auto">
                         <button
                             onClick={() => setIsReportModalOpen(false)}
                             className="absolute top-5 right-5 p-2 text-[#8F96A3] hover:text-[#141518] hover:bg-[#F4F5F7] rounded-xl"
@@ -1016,8 +1117,8 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                             <AlertCircle size={18} className="rotate-45" />
                         </button>
 
-                        <h3 className="text-xl font-bold font-display text-[#141518] mb-1.5">Exportar Relatórios RH</h3>
-                        <p className="text-[#5E636E] text-sm mb-6">Selecione o período para gerar a planilha consolidada de ausências.</p>
+                        <h3 className="text-xl font-bold font-display text-[#141518] mb-1.5">Exportar Relatório de Faltas / RH</h3>
+                        <p className="text-[#5E636E] text-sm mb-5">Selecione o período e o modo de separação por turno (Dia e Noite) para exportar as ausências.</p>
 
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-3">
@@ -1049,11 +1150,99 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                 </div>
                             </div>
 
+                            {/* Resumo rápido do período por turno */}
+                            <div className="grid grid-cols-3 gap-2.5 bg-[#F8F9FA] p-3 rounded-xl border border-[#E4E7EC]">
+                                <div className="text-center">
+                                    <p className="text-[10px] font-bold uppercase text-[#5E636E]">Total Faltas</p>
+                                    <p className="text-lg font-black text-[#141518]">{periodAbsences.length}</p>
+                                </div>
+                                <div className="text-center border-x border-[#E4E7EC]">
+                                    <p className="text-[10px] font-bold uppercase text-amber-700 flex items-center justify-center gap-1"><Sun size={11} /> Dia (Diurno)</p>
+                                    <p className="text-lg font-black text-amber-600">{diurnoPeriodAbsences.length}</p>
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-[10px] font-bold uppercase text-indigo-800 flex items-center justify-center gap-1"><Moon size={11} /> Noite (Noturno)</p>
+                                    <p className="text-lg font-black text-indigo-700">{noturnoPeriodAbsences.length}</p>
+                                </div>
+                            </div>
+
+                            {/* Opções de Separação de Turno */}
+                            <div>
+                                <label className="text-xs font-bold uppercase tracking-wider text-[#5E636E] block mb-2">Modo de Exportação (Dia / Noite)</label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => setReportExportMode('consolidado')}
+                                        className={`p-3 rounded-xl border text-left transition-all ${
+                                            reportExportMode === 'consolidado'
+                                                ? 'border-[#FF4F00] bg-orange-50/70 ring-1 ring-[#FF4F00]'
+                                                : 'border-[#E4E7EC] hover:border-[#D0D5DD] bg-white'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 font-bold text-xs text-[#141518] mb-0.5">
+                                            <FileSpreadsheet size={15} className="text-[#FF4F00]" />
+                                            Consolidado (Abas Dia/Noite)
+                                        </div>
+                                        <p className="text-[11px] text-[#5E636E]">1 arquivo com aba Geral + abas separadas Dia e Noite</p>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setReportExportMode('separado')}
+                                        className={`p-3 rounded-xl border text-left transition-all ${
+                                            reportExportMode === 'separado'
+                                                ? 'border-[#FF4F00] bg-orange-50/70 ring-1 ring-[#FF4F00]'
+                                                : 'border-[#E4E7EC] hover:border-[#D0D5DD] bg-white'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 font-bold text-xs text-[#141518] mb-0.5">
+                                            <Download size={15} className="text-[#FF4F00]" />
+                                            Arquivos Separados (Dia + Noite)
+                                        </div>
+                                        <p className="text-[11px] text-[#5E636E]">Baixa 2 arquivos Excel: 1 só Dia e 1 só Noite</p>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setReportExportMode('diurno')}
+                                        className={`p-3 rounded-xl border text-left transition-all ${
+                                            reportExportMode === 'diurno'
+                                                ? 'border-amber-500 bg-amber-50/70 ring-1 ring-amber-500'
+                                                : 'border-[#E4E7EC] hover:border-[#D0D5DD] bg-white'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 font-bold text-xs text-amber-800 mb-0.5">
+                                            <Sun size={15} className="text-amber-500" />
+                                            Somente Turno Dia (Diurno)
+                                        </div>
+                                        <p className="text-[11px] text-[#5E636E]">Exporta apenas faltas do turno Diurno ({diurnoPeriodAbsences.length})</p>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setReportExportMode('noturno')}
+                                        className={`p-3 rounded-xl border text-left transition-all ${
+                                            reportExportMode === 'noturno'
+                                                ? 'border-indigo-700 bg-indigo-50/70 ring-1 ring-indigo-700'
+                                                : 'border-[#E4E7EC] hover:border-[#D0D5DD] bg-white'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 font-bold text-xs text-indigo-900 mb-0.5">
+                                            <Moon size={15} className="text-indigo-700" />
+                                            Somente Turno Noite (Noturno)
+                                        </div>
+                                        <p className="text-[11px] text-[#5E636E]">Exporta apenas faltas do turno Noturno ({noturnoPeriodAbsences.length})</p>
+                                    </button>
+                                </div>
+                            </div>
+
                             <button
                                 onClick={handleExportAbsences}
-                                className="w-full bg-[#141518] hover:bg-[#23252A] text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
+                                disabled={isExportingReport}
+                                className="w-full bg-[#141518] hover:bg-[#23252A] text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50"
                             >
-                                <Download size={17} className="text-[#FF4F00]" /> Gerar Excel de Ausências
+                                <Download size={17} className="text-[#FF4F00]" />
+                                {isExportingReport ? 'Gerando Relatório...' : 'Gerar Excel de Faltas / Ausências'}
                             </button>
                         </div>
                     </div>
