@@ -724,7 +724,7 @@ const App: React.FC = () => {
         {/* Mobile Navigation Drawer Overlay */}
         {isMobileMenuOpen && (
           <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 lg:hidden animate-in fade-in duration-200"
+            className="fixed inset-0 bg-black/40 z-40 lg:hidden animate-in fade-in duration-200"
             onClick={() => setIsMobileMenuOpen(false)}
           />
         )}

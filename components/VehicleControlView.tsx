@@ -299,7 +299,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
     };
 
     return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+        <div className="space-y-8 animate-in fade-in duration-700 pb-20">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 print:hidden">
                 <div>
                     <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase mb-2">Controle de Frota</h2>
@@ -615,7 +615,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
 
             {/* MODAL: SAÍDA (CHECKOUT) */}
             {isLogModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
                     <div className="bg-white w-full max-w-lg rounded-[20px] shadow-2xl animate-in zoom-in-95 fade-in duration-300 overflow-hidden max-h-[90vh] flex flex-col">
                         <div className="px-10 py-10 bg-primary/5 border-b border-primary/10 flex items-center justify-between shrink-0">
                             <div>
@@ -800,7 +800,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
 
             {/* MODAL: ENTRADA (CHECK-IN) */}
             {isCheckinModalOpen && activeLogForCheckin && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
                     <div className="bg-white w-full max-w-lg rounded-[20px] shadow-2xl animate-in zoom-in-95 fade-in duration-300 overflow-hidden max-h-[90vh] flex flex-col">
                         <div className="px-10 py-10 bg-slate-900 text-white flex items-center justify-between shrink-0">
                             <div>
@@ -870,7 +870,7 @@ export const VehicleControlView: React.FC<VehicleControlViewProps> = ({ currentU
 
             {/* MODAL: NOVO VEÍCULO */}
             {isVehicleModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
                     <div className="bg-white w-full max-w-lg rounded-[20px] shadow-2xl animate-in zoom-in-95 fade-in duration-300 overflow-hidden max-h-[90vh] flex flex-col">
                         <div className="px-10 py-10 bg-primary text-white flex items-center justify-between shrink-0">
                             <div>

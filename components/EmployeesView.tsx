@@ -807,7 +807,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
             </div>
 
             {isImportModalOpen && (
-                <div className="fixed inset-0 bg-[#141518]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 bg-[#141518]/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
                         <button
                             onClick={() => setIsImportModalOpen(false)}
@@ -874,7 +874,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                 </div>
             )}
             {isAbsenceModalOpen && (
-                <div className="fixed inset-0 bg-[#141518]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 bg-[#141518]/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
                         <button
                             onClick={() => setIsAbsenceModalOpen(false)}
@@ -975,7 +975,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                 </div>
             )}
             {selectedEvidenceUrl && (
-                <div className="fixed inset-0 bg-[#141518]/60 backdrop-blur-md z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 bg-[#141518]/60 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="ooh-card shadow-2xl p-5 max-w-2xl w-full relative">
                         <button
                             onClick={() => setSelectedEvidenceUrl(null)}
@@ -1007,7 +1007,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                 </div>
             )}
             {isReportModalOpen && (
-                <div className="fixed inset-0 bg-[#141518]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 bg-[#141518]/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative">
                         <button
                             onClick={() => setIsReportModalOpen(false)}
@@ -1060,7 +1060,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                 </div>
             )}
             {isAddEmployeeModalOpen && (
-                <div className="fixed inset-0 bg-[#141518]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 bg-[#141518]/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
                         <button
                             onClick={() => setIsAddEmployeeModalOpen(false)}

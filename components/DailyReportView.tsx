@@ -1337,7 +1337,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
             {/* Modal de Seleção de Técnicos */}
             {isTechModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-[20px] w-full max-w-md overflow-hidden shadow-2xl border border-[#E6E8EC] animate-in fade-in zoom-in duration-200">
                         <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
                             <div>
@@ -1420,7 +1420,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             )}
             {/* Modal de Seleção de Veículo */}
             {isVehicleModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-[20px] w-full max-w-md overflow-hidden shadow-2xl border border-[#E6E8EC] animate-in fade-in zoom-in duration-200">
                         <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
                             <div>
@@ -1498,7 +1498,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             )}
             {/* Modal de Seleção de OPEC */}
             {isOpecModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-[20px] w-full max-w-md overflow-hidden shadow-2xl border border-[#E6E8EC] animate-in fade-in zoom-in duration-200">
                         <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
                             <div>
@@ -1573,7 +1573,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
 
             {/* Modal de Seleção de Mês para Exportação */}
             {isMonthModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-[20px] w-full max-w-md overflow-hidden shadow-2xl border border-[#E6E8EC] animate-in fade-in zoom-in duration-200">
                         <div className="p-6 border-b border-[#E6E8EC] flex items-center justify-between bg-[#FAFbfc]">
                             <div>

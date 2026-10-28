@@ -113,7 +113,7 @@ export const ReportsView: React.FC<Props> = ({ tasks, users, currentUser }) => {
     };
 
     return (
-        <div className="space-y-8 pb-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="space-y-8 pb-12 animate-in fade-in duration-700">
             {/* Header com Filtros */}
             <div className="bg-white p-6 md:p-8 rounded-[32px] border border-slate-100 shadow-sm flex flex-col xl:flex-row justify-between gap-6">
                 <div>

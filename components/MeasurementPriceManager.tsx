@@ -721,7 +721,7 @@ export const MeasurementPriceManager: React.FC = () => {
 
             {/* Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-[32px] w-full max-w-lg shadow-2xl p-8 animate-in zoom-in-95 duration-200">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-black text-slate-900">{editingItem ? 'Editar Preço' : 'Novo Preço'}</h3>
@@ -806,7 +806,7 @@ export const MeasurementPriceManager: React.FC = () => {
 
             {/* Import Preview Modal */}
             {isImportModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-[32px] w-full max-w-4xl shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
                         {/* Modal Header */}
                         <div className="p-6 border-b border-slate-100 flex justify-between items-center">

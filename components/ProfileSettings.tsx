@@ -71,7 +71,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onClose,
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-[#141518]/40 backdrop-blur-xs" onClick={onClose} />
+            <div className="absolute inset-0 bg-[#141518]/40" onClick={onClose} />
 
             <div className="relative w-full max-w-md ooh-card shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                 <div className="px-6 py-5 border-b border-[#E6E8EC] flex justify-between items-center">

@@ -1148,7 +1148,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
       {/* 9. MODAL: DETALHES COMPLETOS DO RELATÓRIO DIÁRIO */}
       {selectedReportForDetails && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
           <div className="bg-white rounded-[20px] max-w-3xl w-full border border-[#E6E8EC] shadow-2xl overflow-hidden my-8 flex flex-col max-h-[90vh]">
             
             {/* Modal Header */}
@@ -1286,7 +1286,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
       {/* 10. MODAL: VISUALIZADOR DE ATESTADO / COMPROVANTE */}
       {selectedEvidenceUrl && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-[20px] max-w-2xl w-full border border-[#E6E8EC] shadow-2xl overflow-hidden flex flex-col">
             <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
               <span className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">

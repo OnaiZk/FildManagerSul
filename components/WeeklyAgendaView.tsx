@@ -1208,7 +1208,7 @@ export const WeeklyAgendaView: React.FC<WeeklyAgendaViewProps> = ({ currentUser 
 
             {/* Create / Edit Entry Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto">
                     <div className="bg-white rounded-2xl border border-[#E6E8EC] w-full max-w-2xl shadow-xl overflow-hidden my-8">
                         {/* Modal Header */}
                         <div className="px-6 py-4 border-b border-[#E6E8EC] flex items-center justify-between">
