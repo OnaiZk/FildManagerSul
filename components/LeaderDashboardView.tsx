@@ -74,6 +74,14 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
   const [isExporting, setIsExporting] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportShiftMode, setExportShiftMode] = useState<'consolidado' | 'separado' | 'diurno' | 'noturno'>('consolidado');
+  const [exportScope, setExportScope] = useState<'day' | 'month' | 'custom'>('month');
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(17);
+    return d.toISOString().split('T')[0];
+  });
+  const [customEndDate, setCustomEndDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [absenceViewScope, setAbsenceViewScope] = useState<'day' | 'recent' | 'month'>('day');
 
   const isToday = useMemo(() => {
     return selectedDate === new Date().toISOString().split('T')[0];
@@ -164,6 +172,61 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
     });
   }, [allAbsences, selectedDate]);
 
+  // Absences according to view scope (Apenas Dia, Desde dia 17, ou Mês Completo)
+  const scopeAbsences = useMemo(() => {
+    if (absenceViewScope === 'day') {
+      return dayAbsences;
+    }
+    if (absenceViewScope === 'recent') {
+      const [yStr, mStr] = selectedDate.split('-');
+      const since17 = `${yStr}-${mStr}-17`;
+      const upTo = selectedDate >= since17 ? selectedDate : new Date().toISOString().split('T')[0];
+      return allAbsences.filter(a => {
+        const start = a.date;
+        const end = a.endDate || a.date;
+        return start <= upTo && end >= since17;
+      });
+    }
+    // month
+    const [yearStr, monthStr] = selectedDate.split('-');
+    const y = parseInt(yearStr, 10);
+    const m = parseInt(monthStr, 10);
+    const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const monthEnd = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    return allAbsences.filter(a => {
+      const start = a.date;
+      const end = a.endDate || a.date;
+      return start <= monthEnd && end >= monthStart;
+    });
+  }, [allAbsences, dayAbsences, selectedDate, absenceViewScope]);
+
+  // Faltas direcionadas para a exportação conforme escopo (Dia, Mês Completo para RH ou Período Personalizado)
+  const targetExportAbsences = useMemo(() => {
+    if (exportScope === 'day') {
+      return dayAbsences;
+    }
+    if (exportScope === 'month') {
+      const [yearStr, monthStr] = selectedDate.split('-');
+      const y = parseInt(yearStr, 10);
+      const m = parseInt(monthStr, 10);
+      const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
+      const monthEnd = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      return allAbsences.filter(a => {
+        const start = a.date;
+        const end = a.endDate || a.date;
+        return start <= monthEnd && end >= monthStart;
+      });
+    }
+    // custom
+    return allAbsences.filter(a => {
+      const start = a.date;
+      const end = a.endDate || a.date;
+      return start <= customEndDate && end >= customStartDate;
+    });
+  }, [allAbsences, dayAbsences, exportScope, selectedDate, customStartDate, customEndDate]);
+
   // Total activities and items produced on the selected date
   const totalActivitiesCount = useMemo(() => {
     return dailyReports.reduce((acc, r) => acc + (r.activities?.length || 0), 0);
@@ -236,7 +299,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
   // Filtered absences
   const filteredAbsences = useMemo(() => {
-    return dayAbsences.filter(a => {
+    return scopeAbsences.filter(a => {
       const absShift = resolveAbsenceShift(a, users);
       if (shiftFilter !== 'all' && absShift !== shiftFilter) {
         return false;
@@ -253,7 +316,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
         absShift.toLowerCase().includes(term)
       );
     });
-  }, [dayAbsences, searchTerm, shiftFilter, users]);
+  }, [scopeAbsences, searchTerm, shiftFilter, users]);
 
   // Delete handlers
   const handleDeleteReport = async (reportId: string) => {
@@ -369,10 +432,12 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
   const buildLeaderAbsencesOnlyWorkbook = async (
     absencesList: Absence[],
     shiftLabel: string,
-    includeShiftTabs: boolean
+    includeShiftTabs: boolean,
+    periodText?: string
   ) => {
+    const displayPeriod = periodText || selectedDate;
     const { workbook, worksheet: wsAbsences, startRow } = await createEletromidiaWorkbook(
-      `Relatório de Faltas e Ausências (${shiftLabel}) - ${selectedDate}`,
+      `Relatório de Faltas e Ausências (${shiftLabel}) - ${displayPeriod}`,
       'Faltas e Ausências'
     );
 
@@ -391,17 +456,22 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
     const wsResumo = workbook.addWorksheet('Resumo de Faltas');
     const rHeader = wsResumo.getRow(1);
-    rHeader.values = ['Indicador', 'Total'];
+    rHeader.values = ['Indicador / Motivo', 'Total'];
     styleHeaderRow(rHeader);
     [
-      ['Data do Relatório', selectedDate],
+      ['Período do Relatório', displayPeriod],
       ['Turno Exportado', shiftLabel],
-      ['Total de Faltas / Ausências', absencesList.length],
+      ['Total Geral de Faltas / Ausências', absencesList.length],
       ['Faltas - Dia (Diurno)', diurnoAbs.length],
       ['Faltas - Noite (Noturno)', noturnoAbs.length],
       ['Atestados', absencesList.filter(a => a.reason === 'Atestado').length],
       ['Faltas Injustificadas', absencesList.filter(a => a.reason === 'Falta Injustificada').length],
-      ['Faltas Justificadas', absencesList.filter(a => a.reason === 'Falta Justificada').length]
+      ['Faltas Justificadas', absencesList.filter(a => a.reason === 'Falta Justificada').length],
+      ['Day Off', absencesList.filter(a => a.reason === 'Day Off').length],
+      ['Banco de Horas', absencesList.filter(a => a.reason === 'Banco de Horas').length],
+      ['Férias', absencesList.filter(a => a.reason === 'Férias').length],
+      ['Afastamento', absencesList.filter(a => a.reason === 'Afastamento').length],
+      ['Outros', absencesList.filter(a => a.reason === 'Outros').length]
     ].forEach(row => wsResumo.addRow(row));
     styleDataRows(wsResumo, 1);
     autoFitColumns(wsResumo);
@@ -411,31 +481,48 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
   const handleExportAbsencesOnlyXLSX = async (modeOverride?: 'consolidado' | 'separado' | 'diurno' | 'noturno') => {
     const mode = modeOverride || exportShiftMode;
-    if (dayAbsences.length === 0) {
-      alert('Nenhuma falta ou ausência registrada nesta data para exportar.');
+    const listToExport = targetExportAbsences;
+
+    let periodLabel = selectedDate;
+    let fileSuffix = selectedDate;
+
+    if (exportScope === 'month') {
+      const [yearStr, monthStr] = selectedDate.split('-');
+      const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+      const mIdx = parseInt(monthStr, 10) - 1;
+      const mName = monthNames[mIdx] || monthStr;
+      periodLabel = `${mName}/${yearStr}`;
+      fileSuffix = `Mes_${mName}_${yearStr}`;
+    } else if (exportScope === 'custom') {
+      periodLabel = `${customStartDate} até ${customEndDate}`;
+      fileSuffix = `Periodo_${customStartDate}_a_${customEndDate}`;
+    }
+
+    if (listToExport.length === 0) {
+      alert(`Nenhuma falta ou ausência encontrada para o período selecionado (${periodLabel}).`);
       return;
     }
 
-    const diurnoAbsences = dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
-    const noturnoAbsences = dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
+    const diurnoAbsences = listToExport.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+    const noturnoAbsences = listToExport.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
 
     setIsExporting(true);
     try {
       if (mode === 'diurno') {
-        const wb = await buildLeaderAbsencesOnlyWorkbook(diurnoAbsences, 'Diurno (Dia)', false);
-        await saveWorkbook(wb, `Relatorio_Faltas_Dia_Diurno_${selectedDate}`);
+        const wb = await buildLeaderAbsencesOnlyWorkbook(diurnoAbsences, 'Diurno (Dia)', false, periodLabel);
+        await saveWorkbook(wb, `Relatorio_Faltas_RH_Dia_Diurno_${fileSuffix}`);
       } else if (mode === 'noturno') {
-        const wb = await buildLeaderAbsencesOnlyWorkbook(noturnoAbsences, 'Noturno (Noite)', false);
-        await saveWorkbook(wb, `Relatorio_Faltas_Noite_Noturno_${selectedDate}`);
+        const wb = await buildLeaderAbsencesOnlyWorkbook(noturnoAbsences, 'Noturno (Noite)', false, periodLabel);
+        await saveWorkbook(wb, `Relatorio_Faltas_RH_Noite_Noturno_${fileSuffix}`);
       } else if (mode === 'separado') {
-        const wbDia = await buildLeaderAbsencesOnlyWorkbook(diurnoAbsences, 'Diurno (Dia)', false);
-        await saveWorkbook(wbDia, `Relatorio_Faltas_Dia_Diurno_${selectedDate}`);
+        const wbDia = await buildLeaderAbsencesOnlyWorkbook(diurnoAbsences, 'Diurno (Dia)', false, periodLabel);
+        await saveWorkbook(wbDia, `Relatorio_Faltas_RH_Dia_Diurno_${fileSuffix}`);
         await new Promise(resolve => setTimeout(resolve, 350));
-        const wbNoite = await buildLeaderAbsencesOnlyWorkbook(noturnoAbsences, 'Noturno (Noite)', false);
-        await saveWorkbook(wbNoite, `Relatorio_Faltas_Noite_Noturno_${selectedDate}`);
+        const wbNoite = await buildLeaderAbsencesOnlyWorkbook(noturnoAbsences, 'Noturno (Noite)', false, periodLabel);
+        await saveWorkbook(wbNoite, `Relatorio_Faltas_RH_Noite_Noturno_${fileSuffix}`);
       } else {
-        const wb = await buildLeaderAbsencesOnlyWorkbook(dayAbsences, 'Consolidado (Dia e Noite)', true);
-        await saveWorkbook(wb, `Relatorio_Faltas_Consolidado_${selectedDate}`);
+        const wb = await buildLeaderAbsencesOnlyWorkbook(listToExport, 'Consolidado (Dia e Noite)', true, periodLabel);
+        await saveWorkbook(wb, `Relatorio_Faltas_RH_Consolidado_${fileSuffix}`);
       }
       setIsExportModalOpen(false);
     } catch (err) {
@@ -1167,7 +1254,76 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
 
         {/* 6. TAB 2: FALTAS E AUSÊNCIAS */}
         {activeTab === 'absences' && (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto space-y-4">
+            {/* Barra de Filtro de Período e Exportação de Faltas */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#FAFbfc] rounded-2xl border border-[#E6E8EC] mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                  <Calendar size={14} className="text-primary" /> Visualizar:
+                </span>
+                <div className="inline-flex p-1 bg-white rounded-xl border border-[#E6E8EC] shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => setAbsenceViewScope('day')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      absenceViewScope === 'day'
+                        ? 'bg-primary text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Hoje ({dayAbsences.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAbsenceViewScope('recent')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      absenceViewScope === 'recent'
+                        ? 'bg-primary text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Desde dia 17 ({allAbsences.filter(a => {
+                      const [yStr, mStr] = selectedDate.split('-');
+                      const since17 = `${yStr}-${mStr}-17`;
+                      const upTo = selectedDate >= since17 ? selectedDate : new Date().toISOString().split('T')[0];
+                      return a.date <= upTo && (a.endDate || a.date) >= since17;
+                    }).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAbsenceViewScope('month')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      absenceViewScope === 'month'
+                        ? 'bg-primary text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Mês Completo ({allAbsences.filter(a => {
+                      const [yStr, mStr] = selectedDate.split('-');
+                      const y = parseInt(yStr, 10);
+                      const m = parseInt(mStr, 10);
+                      const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
+                      const lastDay = new Date(y, m, 0).getDate();
+                      const monthEnd = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+                      return a.date <= monthEnd && (a.endDate || a.date) >= monthStart;
+                    }).length})
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setExportScope('month');
+                  setIsExportModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black transition-all shadow-sm self-start sm:self-auto cursor-pointer"
+              >
+                <UserX size={14} />
+                Exportar Faltas (.XLSX)
+              </button>
+            </div>
+
             {loading ? (
               <div className="py-16 flex flex-col items-center justify-center gap-3">
                 <RefreshCw size={24} className="animate-spin text-primary" />
@@ -1178,9 +1334,13 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                 <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">
                   <CheckCircle2 size={28} />
                 </div>
-                <h3 className="text-sm font-black text-slate-700">Nenhuma falta registrada para hoje</h3>
+                <h3 className="text-sm font-black text-slate-700">Nenhuma falta registrada no período</h3>
                 <p className="text-xs text-slate-400 max-w-sm">
-                  Todos os colaboradores estão presentes ou nenhuma ocorrência foi lançada para <strong className="text-slate-600">{selectedDate}</strong>.
+                  {absenceViewScope === 'day'
+                    ? `Todos os colaboradores estão presentes para a data ${selectedDate}.`
+                    : absenceViewScope === 'recent'
+                    ? 'Nenhuma falta registrada desde o dia 17 até a data atual.'
+                    : 'Nenhuma falta registrada no mês selecionado.'}
                 </p>
               </div>
             ) : (
@@ -1619,6 +1779,77 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
             </div>
 
             <div className="p-6 space-y-5">
+              {/* Escopo do Período de Faltas */}
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-[#E6E8EC] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Calendar size={14} className="text-primary" /> Período das Faltas (RH)
+                  </label>
+                  <span className="text-[10px] font-black px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full uppercase">
+                    {targetExportAbsences.length} faltas no período
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setExportScope('day')}
+                    className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all border ${
+                      exportScope === 'day'
+                        ? 'bg-white border-primary text-primary shadow-sm ring-1 ring-primary'
+                        : 'bg-white/60 border-slate-200 text-slate-600 hover:bg-white'
+                    }`}
+                  >
+                    Só Hoje ({selectedDate.slice(8)})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExportScope('month')}
+                    className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all border ${
+                      exportScope === 'month'
+                        ? 'bg-white border-primary text-primary shadow-sm ring-1 ring-primary'
+                        : 'bg-white/60 border-slate-200 text-slate-600 hover:bg-white'
+                    }`}
+                  >
+                    Mês Completo (RH)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExportScope('custom')}
+                    className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all border ${
+                      exportScope === 'custom'
+                        ? 'bg-white border-primary text-primary shadow-sm ring-1 ring-primary'
+                        : 'bg-white/60 border-slate-200 text-slate-600 hover:bg-white'
+                    }`}
+                  >
+                    Personalizado
+                  </button>
+                </div>
+
+                {exportScope === 'custom' && (
+                  <div className="grid grid-cols-2 gap-2 pt-1 animate-in fade-in duration-200">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block mb-1">De:</span>
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="w-full p-2 bg-white border border-[#E6E8EC] rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-primary"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block mb-1">Até:</span>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="w-full p-2 bg-white border border-[#E6E8EC] rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-primary"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Resumo rápido de relatórios Dia vs Noite */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3">
@@ -1628,7 +1859,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                   <div>
                     <p className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Dia (Diurno)</p>
                     <p className="text-xs font-black text-slate-800">
-                      {dailyReports.filter(r => (r.shift || 'Diurno') !== 'Noturno').length} rel. • {dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno').length} faltas
+                      {dailyReports.filter(r => (r.shift || 'Diurno') !== 'Noturno').length} rel. • {targetExportAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno').length} faltas
                     </p>
                   </div>
                 </div>
@@ -1640,7 +1871,7 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                   <div>
                     <p className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">Noite (Noturno)</p>
                     <p className="text-xs font-black text-slate-800">
-                      {dailyReports.filter(r => r.shift === 'Noturno').length} rel. • {dayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno').length} faltas
+                      {dailyReports.filter(r => r.shift === 'Noturno').length} rel. • {targetExportAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno').length} faltas
                     </p>
                   </div>
                 </div>
@@ -1744,17 +1975,17 @@ export const LeaderDashboardView: React.FC<LeaderDashboardViewProps> = ({ curren
                 <button
                   onClick={() => handleExportAbsencesOnlyXLSX(exportShiftMode)}
                   disabled={isExporting}
-                  className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-5 py-3 rounded-2xl font-black text-xs transition-all shadow-sm disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-5 py-3 rounded-2xl font-black text-xs transition-all shadow-sm disabled:opacity-50 cursor-pointer"
                 >
                   <UserX size={15} />
                   <span>
                     {exportShiftMode === 'separado'
-                      ? 'Exportar Só Relatório de Faltas (.XLSX) - Dia e Noite Separados'
+                      ? `Exportar Relatório de Faltas (${targetExportAbsences.length}) - Dia e Noite Separados`
                       : exportShiftMode === 'diurno'
-                      ? 'Exportar Só Relatório de Faltas (.XLSX) - Apenas Dia'
+                      ? `Exportar Relatório de Faltas (${targetExportAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno').length}) - Apenas Dia`
                       : exportShiftMode === 'noturno'
-                      ? 'Exportar Só Relatório de Faltas (.XLSX) - Apenas Noite'
-                      : 'Exportar Só Relatório de Faltas (.XLSX) Consolidado'}
+                      ? `Exportar Relatório de Faltas (${targetExportAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno').length}) - Apenas Noite`
+                      : `Exportar Relatório de Faltas (${targetExportAbsences.length}) Consolidado`}
                   </span>
                 </button>
 

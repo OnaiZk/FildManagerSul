@@ -746,34 +746,12 @@ export const bulkUpdateMeasurementPrices = async (companyId: string, prices: any
 // --- EMPLOYEES & INVITES ---
 
 export const getEmployees = async (companyId: string): Promise<Employee[]> => {
-    // 1. Fetch active profiles
-    const { data: profiles, error: pError } = await getAllUsers(companyId) as any;
-    const activeEmployees: Employee[] = (profiles || []).map((p: User) => ({ ...p, status: 'ACTIVE' }));
-
-    // 2. Fetch pending invites
-    let query = supabase.from('employee_invites').select('*');
-    if (companyId !== 'internal') {
-        query = query.eq('company_id', companyId);
-    }
-    const { data: invites, error: iError } = await query;
-
-    const pendingEmployees: Employee[] = (invites || []).map(i => ({
-        id: i.id,
-        name: i.name,
-        role: i.role as UserRole,
-        companyId: i.company_id,
-        companyName: i.company_name,
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(i.name)}&background=random`,
-        email: i.email,
-        status: 'PENDING',
-        shift: i.shift,
-        code: i.code,
-        leaderName: i.leader_name,
-        originalStatus: i.original_status
+    // 1. Fetch all users (both profiles and invites properly loaded)
+    const allUsers = await getAllUsers(companyId);
+    return allUsers.map(u => ({
+        ...u,
+        status: u.status || 'ACTIVE'
     }));
-
-    // 3. Merge
-    return [...activeEmployees, ...pendingEmployees];
 };
 
 export const bulkCreateEmployees = async (employees: Omit<Employee, 'id' | 'status' | 'avatar'>[]): Promise<void> => {
@@ -800,53 +778,88 @@ export const createAbsence = async (absence: Omit<Absence, 'id'>): Promise<void>
         ? 'Noturno'
         : 'Diurno';
 
-    const payloadWithShift: any = {
+    const cleanDate = absence.date ? absence.date.split('T')[0] : new Date().toISOString().split('T')[0];
+    const cleanEndDate = absence.endDate
+        ? absence.endDate.split('T')[0]
+        : cleanDate;
+
+    // We embed the shift in notes tag [TURNO: Diurno/Noturno] for schema-safety
+    const cleanDesc = (absence.description || '').replace(/^\[TURNO:\s*(Diurno|Noturno)\]\s*/i, '').trim();
+    const fallbackNotes = `[TURNO: ${normalizedShift}] ${cleanDesc}`.trim();
+
+    // Prepare resilient payload without non-existent shift column
+    const payload: any = {
         employee_id: absence.employeeId || null,
         employee_name: absence.employeeName,
-        date: absence.date,
-        end_date: absence.endDate || absence.date,
+        date: cleanDate,
+        end_date: cleanEndDate,
         reason: absence.reason,
-        notes: absence.description,
-        company_id: absence.companyId,
-        evidence_url: absence.evidenceUrl,
-        shift: normalizedShift
+        notes: fallbackNotes,
+        company_id: absence.companyId || 'internal',
+        evidence_url: absence.evidenceUrl || null
     };
 
-    const { error } = await supabase.from('daily_absences').insert(payloadWithShift);
-    if (error) {
-        const isMissingShiftColumn =
-            error.code === '42703' ||
-            error.code === 'PGRST204' ||
-            (error.message && error.message.toLowerCase().includes('shift'));
+    // 1. Try insert
+    let { error } = await supabase.from('daily_absences').insert(payload);
 
-        if (isMissingShiftColumn) {
-            const fallbackNotes = `[TURNO: ${normalizedShift}] ${absence.description || ''}`.trim();
-            const { error: retryError } = await supabase.from('daily_absences').insert({
-                employee_id: absence.employeeId || null,
-                employee_name: absence.employeeName,
-                date: absence.date,
-                end_date: absence.endDate || absence.date,
-                reason: absence.reason,
-                notes: fallbackNotes,
-                company_id: absence.companyId,
-                evidence_url: absence.evidenceUrl
-            });
-            if (retryError) throw retryError;
-            return;
-        }
+    // 2. If Foreign Key violation (e.g. employee_id is from employee_invites, not auth.users)
+    if (error && (error.code === '23503' || error.message?.includes('foreign key') || error.message?.includes('fkey') || error.message?.includes('employee_id'))) {
+        console.warn('Foreign key violation on employee_id, retrying with employee_id: null', error);
+        payload.employee_id = null;
+        const retryRes = await supabase.from('daily_absences').insert(payload);
+        error = retryRes.error;
+    }
+
+    // 3. If end_date column is missing in older schema
+    if (error && (error.code === '42703' || error.code === 'PGRST204') && error.message?.includes('end_date')) {
+        console.warn('Column end_date missing in daily_absences, retrying without end_date', error);
+        delete payload.end_date;
+        const retryRes = await supabase.from('daily_absences').insert(payload);
+        error = retryRes.error;
+    }
+
+    // 4. If evidence_url column is missing
+    if (error && (error.code === '42703' || error.code === 'PGRST204') && error.message?.includes('evidence_url')) {
+        console.warn('Column evidence_url missing in daily_absences, retrying without evidence_url', error);
+        delete payload.evidence_url;
+        const retryRes = await supabase.from('daily_absences').insert(payload);
+        error = retryRes.error;
+    }
+
+    if (error) {
+        console.error('Fatal error creating absence:', error);
         throw error;
     }
 };
 
 export const getAbsences = async (companyId: string): Promise<Absence[]> => {
-    let query = supabase.from('daily_absences').select('*');
-    if (companyId !== 'internal') {
-        query = query.eq('company_id', companyId);
-    }
-    const { data, error } = await query;
-    if (error) throw error;
+    const PAGE_SIZE = 1000;
+    const allRows: any[] = [];
+    let from = 0;
 
-    return data.map((item: any) => {
+    // Pagina todas as linhas para não sofrer truncamento do limite padrão de 1000 registros do PostgREST/Supabase
+    while (true) {
+        let query = supabase
+            .from('daily_absences')
+            .select('*')
+            .order('date', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, from + PAGE_SIZE - 1);
+
+        if (companyId !== 'internal') {
+            query = query.eq('company_id', companyId);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+
+        allRows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+    }
+
+    return allRows.map((item: any) => {
         const rawNotes: string = item.notes || '';
         const shiftMatch = rawNotes.match(/^\[TURNO:\s*(Diurno|Noturno)\]\s*/i);
         const extractedShift = item.shift || (shiftMatch ? shiftMatch[1] : undefined);
@@ -892,6 +905,32 @@ export const deleteEmployeeInvite = async (inviteId: string): Promise<void> => {
 
 export const bulkDeleteInvites = async (inviteIds: string[]): Promise<void> => {
     const { error } = await supabase.from('employee_invites').delete().in('id', inviteIds);
+    if (error) throw error;
+};
+
+export const updateEmployee = async (employee: {
+    id: string;
+    status?: 'ACTIVE' | 'PENDING';
+    name: string;
+    email: string;
+    role: UserRole;
+    shift?: string;
+    code?: string;
+    leaderName?: string;
+    originalStatus?: string;
+}): Promise<void> => {
+    const table = employee.status === 'ACTIVE' ? 'profiles' : 'employee_invites';
+    const payload: Record<string, any> = {
+        name: employee.name,
+        email: employee.email,
+        role: employee.role,
+        shift: employee.shift || null,
+        code: employee.code || null,
+        leader_name: employee.leaderName || null,
+        original_status: employee.originalStatus || 'ativo'
+    };
+
+    const { error } = await supabase.from(table).update(payload).eq('id', employee.id);
     if (error) throw error;
 };
 

@@ -47,6 +47,7 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
     const [report, setReport] = useState<Partial<DailyReport> | null>(null);
     const [selectedActivities, setSelectedActivities] = useState<DailyActivity[]>([]);
     const [absences, setAbsences] = useState<Absence[]>([]);
+    const [allDayAbsences, setAllDayAbsences] = useState<Absence[]>([]);
     const [allDayReports, setAllDayReports] = useState<DailyReport[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [isTechModalOpen, setIsTechModalOpen] = useState(false);
@@ -188,17 +189,29 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             }
 
             // Load absences for this date and team/techs
-            const allAbsences = await getAbsences(currentUser.companyId);
+            const allCompanyAbsences = await getAbsences(currentUser.companyId);
+            const thisDayAbsences = allCompanyAbsences.filter(a => {
+                const start = a.date;
+                const end = a.endDate || a.date;
+                return date >= start && date <= end;
+            });
+            setAllDayAbsences(thisDayAbsences);
+
             const reportTechIds = selectedTeam
                 ? (teams.find(t => t.id === selectedTeam)?.technicianIds || [])
                 : selectedTechnicianIds;
 
-            const dayAbsences = allAbsences.filter(a => {
-                const isTechInReport = reportTechIds.includes(a.employeeId);
-                if (!isTechInReport) return false;
-                const start = a.date;
-                const end = a.endDate || a.date;
-                return date >= start && date <= end;
+            const currentTeamObj = teams.find(t => t.id === selectedTeam);
+            const teamMemberIds = new Set<string>(reportTechIds);
+            if (currentTeamObj?.leaderId) teamMemberIds.add(currentTeamObj.leaderId);
+            if (reportData?.driverId) teamMemberIds.add(reportData.driverId);
+            if (reportData?.userId) teamMemberIds.add(reportData.userId);
+
+            const dayAbsences = thisDayAbsences.filter(a => {
+                if (a.employeeId && teamMemberIds.has(a.employeeId)) return true;
+                const teamUsers = users.filter(u => teamMemberIds.has(u.id));
+                if (a.employeeName && teamUsers.some(u => u.name && u.name.trim().toLowerCase() === a.employeeName.trim().toLowerCase())) return true;
+                return false;
             });
             setAbsences(dayAbsences);
 
@@ -388,17 +401,23 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
         if (!employee) return;
 
         try {
+            // Se o funcionário está pendente, o ID é do convite e não do auth.users.
+            // Para evitar erro de Foreign Key na tabela daily_absences, passamos undefined
+            const safeEmployeeId = employee.status === 'ACTIVE' ? employeeId : undefined;
+
             await createAbsence({
-                employeeId,
+                employeeId: safeEmployeeId,
                 employeeName: employee.name,
                 date,
                 reason: reason as any,
                 shift: report?.shift || resolveUserShift(employeeId, users),
                 companyId: currentUser.companyId
             });
-            loadReport();
-        } catch (err) {
+            await loadReport();
+            alert(`Ausência (${reason}) registrada com sucesso para ${employee.name}!`);
+        } catch (err: any) {
             console.error('Error recording absence:', err);
+            alert('Erro ao registrar ausência: ' + (err.message || 'Erro desconhecido'));
         }
     };
 
@@ -659,10 +678,11 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
             : 'Equipe Personalizada';
         const safeTeamName = teamName.replace(/\s/g, '_');
 
+        const exportAbsencesList = (mode === 'consolidado' || !selectedTeam) ? allDayAbsences : absences;
         const diurnoReports = allDayReports.filter(r => (r.shift || 'Diurno') !== 'Noturno');
         const noturnoReports = allDayReports.filter(r => r.shift === 'Noturno');
-        const diurnoAbsences = absences.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
-        const noturnoAbsences = absences.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
+        const diurnoAbsences = exportAbsencesList.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+        const noturnoAbsences = exportAbsencesList.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
 
         setIsExportingDay(true);
         try {
@@ -689,13 +709,61 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                 const wbNoite = await buildDailyWorkbook(noturnoReports, noturnoAbsences, 'Noturno (Noite)', teamName, false);
                 await saveWorkbook(wbNoite, `Relatorio_Noite_Noturno_${date}_${safeTeamName}`);
             } else {
-                const wb = await buildDailyWorkbook(allDayReports, absences, 'Consolidado (Dia e Noite)', teamName, true);
+                const wb = await buildDailyWorkbook(allDayReports, allDayAbsences, 'Consolidado (Dia e Noite)', teamName, true);
                 await saveWorkbook(wb, `Relatorio_${date}_${safeTeamName}`);
             }
             setIsDayExportModalOpen(false);
         } catch (err) {
             console.error('Error exporting daily report:', err);
             alert('Erro ao exportar relatório diário.');
+        } finally {
+            setIsExportingDay(false);
+        }
+    };
+
+    const handleExportDailyAbsencesOnly = async () => {
+        if (allDayAbsences.length === 0) {
+            alert('Nenhuma falta ou ausência registrada nesta data para exportar.');
+            return;
+        }
+        setIsExportingDay(true);
+        try {
+            const { workbook, worksheet: wsAbsences, startRow } = await createEletromidiaWorkbook(
+                `Relatório de Faltas e Ausências - ${date}`,
+                'Faltas e Ausências'
+            );
+            populateAbsencesWorksheet(wsAbsences, startRow, allDayAbsences);
+
+            const diurnoAbsList = allDayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Diurno');
+            const noturnoAbsList = allDayAbsences.filter(a => resolveAbsenceShift(a, users) === 'Noturno');
+
+            const wsDia = workbook.addWorksheet('Faltas - Dia (Diurno)');
+            populateAbsencesWorksheet(wsDia, 1, diurnoAbsList);
+
+            const wsNoite = workbook.addWorksheet('Faltas - Noite (Noturno)');
+            populateAbsencesWorksheet(wsNoite, 1, noturnoAbsList);
+
+            const wsResumo = workbook.addWorksheet('Resumo de Faltas');
+            const rHeader = wsResumo.getRow(1);
+            rHeader.values = ['Indicador / Motivo', 'Total'];
+            styleHeaderRow(rHeader);
+            [
+                ['Data', date],
+                ['Total Geral de Faltas / Ausências', allDayAbsences.length],
+                ['Faltas - Dia (Diurno)', diurnoAbsList.length],
+                ['Faltas - Noite (Noturno)', noturnoAbsList.length],
+                ['Atestados', allDayAbsences.filter(a => a.reason === 'Atestado').length],
+                ['Faltas Injustificadas', allDayAbsences.filter(a => a.reason === 'Falta Injustificada').length],
+                ['Faltas Justificadas', allDayAbsences.filter(a => a.reason === 'Falta Justificada').length]
+            ].forEach(row => wsResumo.addRow(row));
+            styleDataRows(wsResumo, 1);
+            autoFitColumns(wsResumo);
+
+            await saveWorkbook(workbook, `Relatorio_Faltas_RH_${date}`);
+            setIsDayExportModalOpen(false);
+        } catch (err) {
+            console.error('Error exporting daily absences:', err);
+            alert('Erro ao exportar faltas do dia.');
         } finally {
             setIsExportingDay(false);
         }
@@ -1924,6 +1992,18 @@ export const DailyReportView: React.FC<Props> = ({ currentUser }) => {
                                                     : 'Baixar Relatório Consolidado'}
                                     </>
                                 )}
+                            </button>
+
+                            <button
+                                onClick={handleExportDailyAbsencesOnly}
+                                disabled={isExportingDay}
+                                className="w-full flex items-center justify-center gap-2 bg-amber-500 text-white px-6 py-3.5 rounded-2xl font-black text-xs hover:bg-amber-600 transition-all shadow-md disabled:opacity-50 cursor-pointer"
+                            >
+                                <CalendarOff size={16} />
+                                {isExportingDay
+                                    ? 'Gerando Excel...'
+                                    : `Exportar Só Relatório de Faltas do Dia (${allDayAbsences.length}) (.XLSX)`
+                                }
                             </button>
                         </div>
                     </div>

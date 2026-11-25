@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Employee, UserRole, Absence } from '../types';
-import { getEmployees, bulkCreateEmployees, deleteEmployeeInvite, createAbsence, getAbsences, deleteAbsence, bulkDeleteInvites, uploadAbsenceEvidence } from '../api/fieldManagerApi';
-import { Users, Upload, Search, Download, Trash2, Mail, CheckCircle2, Clock, AlertCircle, CalendarOff, Plus, ChevronUp, ChevronDown, Filter, Eye, FileText, RotateCcw, Sun, Moon, FileSpreadsheet } from 'lucide-react';
+import { getEmployees, bulkCreateEmployees, deleteEmployeeInvite, createAbsence, getAbsences, deleteAbsence, bulkDeleteInvites, uploadAbsenceEvidence, updateEmployee } from '../api/fieldManagerApi';
+import { Users, Upload, Search, Download, Trash2, Mail, CheckCircle2, Clock, AlertCircle, CalendarOff, Plus, ChevronUp, ChevronDown, Filter, Eye, FileText, RotateCcw, Sun, Moon, FileSpreadsheet, Pencil } from 'lucide-react';
 import readXlsxFile from 'read-excel-file';
 import { createEletromidiaWorkbook, styleHeaderRow, styleDataRows, autoFitColumns, saveWorkbook } from '../utils/excelExport';
 import { resolveAbsenceShift, normalizeShift, ShiftExportMode } from '../utils/shiftUtils';
@@ -46,8 +46,15 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
     const [selectedEvidenceUrl, setSelectedEvidenceUrl] = useState<string | null>(null);
 
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+    const [reportPeriodType, setReportPeriodType] = useState<'month' | 'custom'>('month');
     const [reportMonth, setReportMonth] = useState<number>(new Date().getMonth() + 1);
     const [reportYear, setReportYear] = useState<number>(new Date().getFullYear());
+    const [customReportStartDate, setCustomReportStartDate] = useState<string>(() => {
+        const d = new Date();
+        d.setDate(17);
+        return d.toISOString().split('T')[0];
+    });
+    const [customReportEndDate, setCustomReportEndDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
     const [reportExportMode, setReportExportMode] = useState<ShiftExportMode>('consolidado');
     const [isExportingReport, setIsExportingReport] = useState(false);
 
@@ -61,6 +68,18 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
         leaderName: ''
     });
     const [addingEmployee, setAddingEmployee] = useState(false);
+
+    const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+    const [editEmployeeForm, setEditEmployeeForm] = useState({
+        name: '',
+        email: '',
+        code: '',
+        role: 'TECNICO',
+        shift: '',
+        leaderName: '',
+        originalStatus: 'ativo'
+    });
+    const [savingEdit, setSavingEdit] = useState(false);
 
     useEffect(() => {
         loadEmployees();
@@ -161,7 +180,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
             });
             alert('Ausência registrada com sucesso!');
             setIsAbsenceModalOpen(false);
-            loadAbsences();
+            await Promise.all([loadAbsences(), loadEmployees()]);
         } catch (err: any) {
             console.error('Error creating absence:', err);
             if (err.code === '23505') {
@@ -250,8 +269,18 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
     };
 
     const periodAbsences = absences.filter(a => {
-        const [year, month] = a.date.split('-');
-        return parseInt(month, 10) === reportMonth && parseInt(year, 10) === reportYear;
+        if (!a.date) return false;
+        const start = a.date.split('T')[0];
+        const end = (a.endDate || a.date).split('T')[0];
+
+        if (reportPeriodType === 'month') {
+            const monthStart = `${reportYear}-${String(reportMonth).padStart(2, '0')}-01`;
+            const lastDay = new Date(reportYear, reportMonth, 0).getDate();
+            const monthEnd = `${reportYear}-${String(reportMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+            return start <= monthEnd && end >= monthStart;
+        }
+
+        return start <= customReportEndDate && end >= customReportStartDate;
     });
     const diurnoPeriodAbsences = periodAbsences.filter(a => resolveAbsenceShift(a, employees) === 'Diurno');
     const noturnoPeriodAbsences = periodAbsences.filter(a => resolveAbsenceShift(a, employees) === 'Noturno');
@@ -266,12 +295,20 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
         styleHeaderRow(headerRow);
 
         const formatPtBr = (dStr: string) => {
-            const [y, m, d] = dStr.split('-');
-            return `${d}/${m}/${y}`;
+            if (!dStr) return '-';
+            const clean = dStr.split('T')[0];
+            const parts = clean.split('-');
+            if (parts.length === 3) {
+                return `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+            return clean;
         };
 
         list.forEach(a => {
-            const employee = employees.find(e => e.id === a.employeeId || e.name.toLowerCase() === a.employeeName?.toLowerCase());
+            const employee = employees.find(e =>
+                (a.employeeId && e.id === a.employeeId) ||
+                (a.employeeName && e.name && e.name.trim().toLowerCase() === a.employeeName.trim().toLowerCase())
+            );
             const resolvedShift = resolveAbsenceShift(a, employees);
             const dateStr = a.endDate && a.endDate !== a.date
                 ? `${formatPtBr(a.date)} - ${formatPtBr(a.endDate)}`
@@ -280,9 +317,9 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
             ws.addRow([
                 dateStr,
                 resolvedShift === 'Noturno' ? 'Noturno (Noite)' : 'Diurno (Dia)',
-                a.employeeName,
+                a.employeeName || employee?.name || 'Desconhecido',
                 employee?.code || '-',
-                employee?.role.replace('PARCEIRO_', '').replace('_', ' ') || '-',
+                employee?.role ? employee.role.replace('PARCEIRO_', '').replace('_', ' ') : 'Colaborador',
                 employee?.leaderName || '-',
                 a.reason,
                 a.description || '-',
@@ -297,8 +334,12 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
 
     const buildAbsencesWorkbook = async (list: Absence[], titleLabel: string, includeShiftTabs: boolean) => {
         const monthName = new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2000, reportMonth - 1));
+        const periodTitle = reportPeriodType === 'month'
+            ? `${monthName} / ${reportYear}`
+            : `${customReportStartDate} a ${customReportEndDate}`;
+
         const { workbook, worksheet, startRow } = await createEletromidiaWorkbook(
-            `Relatório de Faltas e Ausências (${titleLabel}) - ${monthName} / ${reportYear}`,
+            `Relatório de Faltas e Ausências (${titleLabel}) - ${periodTitle}`,
             'Ausências'
         );
 
@@ -349,22 +390,25 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
         setIsExportingReport(true);
         try {
             const monthName = new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2000, reportMonth - 1));
+            const fileSuffix = reportPeriodType === 'month'
+                ? `${monthName}_${reportYear}`
+                : `${customReportStartDate}_a_${customReportEndDate}`;
 
             if (reportExportMode === 'consolidado') {
                 const wb = await buildAbsencesWorkbook(periodAbsences, 'Consolidado Dia e Noite', true);
-                await saveWorkbook(wb, `Relatorio_Faltas_Consolidado_${monthName}_${reportYear}`);
+                await saveWorkbook(wb, `Relatorio_Faltas_Consolidado_${fileSuffix}`);
             } else if (reportExportMode === 'separado') {
                 const wbDia = await buildAbsencesWorkbook(diurnoPeriodAbsences, 'Turno Dia - Diurno', false);
-                await saveWorkbook(wbDia, `Relatorio_Faltas_Dia_Diurno_${monthName}_${reportYear}`);
+                await saveWorkbook(wbDia, `Relatorio_Faltas_Dia_Diurno_${fileSuffix}`);
 
                 const wbNoite = await buildAbsencesWorkbook(noturnoPeriodAbsences, 'Turno Noite - Noturno', false);
-                await saveWorkbook(wbNoite, `Relatorio_Faltas_Noite_Noturno_${monthName}_${reportYear}`);
+                await saveWorkbook(wbNoite, `Relatorio_Faltas_Noite_Noturno_${fileSuffix}`);
             } else if (reportExportMode === 'diurno') {
                 const wbDia = await buildAbsencesWorkbook(diurnoPeriodAbsences, 'Turno Dia - Diurno', false);
-                await saveWorkbook(wbDia, `Relatorio_Faltas_Dia_Diurno_${monthName}_${reportYear}`);
+                await saveWorkbook(wbDia, `Relatorio_Faltas_Dia_Diurno_${fileSuffix}`);
             } else if (reportExportMode === 'noturno') {
                 const wbNoite = await buildAbsencesWorkbook(noturnoPeriodAbsences, 'Turno Noite - Noturno', false);
-                await saveWorkbook(wbNoite, `Relatorio_Faltas_Noite_Noturno_${monthName}_${reportYear}`);
+                await saveWorkbook(wbNoite, `Relatorio_Faltas_Noite_Noturno_${fileSuffix}`);
             }
 
             setIsReportModalOpen(false);
@@ -449,7 +493,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                     shift,
                     code,
                     leaderName,
-                    originalStatus: rawStatus
+                    originalStatus: rawStatus || 'ativo'
                 });
             }
 
@@ -518,7 +562,8 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                 companyName: currentUser.companyName,
                 shift: addEmployeeForm.shift || undefined,
                 code: addEmployeeForm.code || undefined,
-                leaderName: addEmployeeForm.leaderName || undefined
+                leaderName: addEmployeeForm.leaderName || undefined,
+                originalStatus: 'ativo'
             };
 
             await bulkCreateEmployees([newEmployee]);
@@ -531,6 +576,55 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
             alert('Erro ao adicionar funcionário.');
         } finally {
             setAddingEmployee(false);
+        }
+    };
+
+    const handleOpenEditModal = (employee: Employee) => {
+        setEditingEmployee(employee);
+        setEditEmployeeForm({
+            name: employee.name || '',
+            email: employee.email || '',
+            code: employee.code || '',
+            role: employee.role.replace('PARCEIRO_', '') || 'TECNICO',
+            shift: employee.shift || '',
+            leaderName: employee.leaderName || '',
+            originalStatus: employee.originalStatus || 'ativo'
+        });
+    };
+
+    const handleSaveEditEmployee = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingEmployee || !editEmployeeForm.name.trim()) return;
+
+        setSavingEdit(true);
+        try {
+            let role: UserRole = editEmployeeForm.role as UserRole;
+            if (currentUser.companyId !== 'internal') {
+                if (role === UserRole.TECNICO) role = UserRole.PARCEIRO_TECNICO;
+                if (role === UserRole.LIDER) role = UserRole.PARCEIRO_LIDER;
+                if (role === UserRole.CHEFE) role = UserRole.PARCEIRO_CHEFE;
+            }
+
+            await updateEmployee({
+                id: editingEmployee.id,
+                status: editingEmployee.status,
+                name: editEmployeeForm.name.trim(),
+                email: editEmployeeForm.email.trim(),
+                role,
+                shift: editEmployeeForm.shift || undefined,
+                code: editEmployeeForm.code.trim() || undefined,
+                leaderName: editEmployeeForm.leaderName.trim() || undefined,
+                originalStatus: editEmployeeForm.originalStatus.trim() || 'ativo'
+            });
+
+            alert('Colaborador atualizado com sucesso!');
+            setEditingEmployee(null);
+            await loadEmployees();
+        } catch (err: any) {
+            console.error('Error updating employee:', err);
+            alert('Erro ao atualizar colaborador: ' + (err.message || 'Erro desconhecido'));
+        } finally {
+            setSavingEdit(false);
         }
     };
 
@@ -824,18 +918,24 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                                         </span>
                                                     );
                                                 }
-                                                if (employee.originalStatus) {
-                                                    return (
-                                                        <span className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold ${employee.originalStatus.includes('afastado') ? 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]' : 'bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]'}`}>
-                                                            {employee.originalStatus}
-                                                        </span>
-                                                    );
-                                                }
-                                                return <span className="text-[#8F96A3]">-</span>;
+                                                const displayStatus = employee.originalStatus || 'ativo';
+                                                const isInactiveOrAway = displayStatus.toLowerCase().includes('afastad') || displayStatus.toLowerCase().includes('inativ') || displayStatus.toLowerCase().includes('férias') || displayStatus.toLowerCase().includes('ferias');
+                                                return (
+                                                    <span className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold ${isInactiveOrAway ? 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]' : 'bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]'}`}>
+                                                        {displayStatus}
+                                                    </span>
+                                                );
                                             })()}
                                         </td>
                                         <td className="p-4 text-right">
                                             <div className="flex items-center justify-end gap-1.5">
+                                                <button
+                                                    onClick={() => handleOpenEditModal(employee)}
+                                                    className="p-2 text-[#5E636E] hover:text-[#141518] hover:bg-[#F4F5F7] rounded-xl transition-all"
+                                                    title="Editar Colaborador"
+                                                >
+                                                    <Pencil size={16} />
+                                                </button>
                                                 {(() => {
                                                     const activeAbsence = getEmployeeActiveAbsence(employee);
                                                     if (activeAbsence) {
@@ -1118,37 +1218,105 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                         </button>
 
                         <h3 className="text-xl font-bold font-display text-[#141518] mb-1.5">Exportar Relatório de Faltas / RH</h3>
-                        <p className="text-[#5E636E] text-sm mb-5">Selecione o período e o modo de separação por turno (Dia e Noite) para exportar as ausências.</p>
+                        <p className="text-[#5E636E] text-sm mb-4">Selecione o período e o modo de separação por turno (Dia e Noite) para exportar as ausências.</p>
 
                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Mês</label>
-                                    <select
-                                        value={reportMonth}
-                                        onChange={(e) => setReportMonth(parseInt(e.target.value))}
-                                        className="ooh-input py-2.5 text-sm font-medium capitalize"
+                            {/* Seletor de Tipo de Período */}
+                            <div>
+                                <label className="text-xs font-bold uppercase tracking-wider text-[#5E636E] block mb-1.5">Tipo de Período</label>
+                                <div className="grid grid-cols-2 gap-2 bg-[#F4F5F7] p-1 rounded-xl">
+                                    <button
+                                        type="button"
+                                        onClick={() => setReportPeriodType('month')}
+                                        className={`py-2 px-3 text-xs font-bold rounded-lg transition-all ${
+                                            reportPeriodType === 'month'
+                                                ? 'bg-white text-[#141518] shadow-sm'
+                                                : 'text-[#5E636E] hover:text-[#141518]'
+                                        }`}
                                     >
-                                        {Array.from({ length: 12 }, (_, i) => (
-                                            <option key={i + 1} value={i + 1}>
-                                                {new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2000, i))}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Ano</label>
-                                    <select
-                                        value={reportYear}
-                                        onChange={(e) => setReportYear(parseInt(e.target.value))}
-                                        className="ooh-input py-2.5 text-sm font-mono-code font-medium"
+                                        Mês Fechado (RH)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setReportPeriodType('custom')}
+                                        className={`py-2 px-3 text-xs font-bold rounded-lg transition-all ${
+                                            reportPeriodType === 'custom'
+                                                ? 'bg-white text-[#141518] shadow-sm'
+                                                : 'text-[#5E636E] hover:text-[#141518]'
+                                        }`}
                                     >
-                                        {[2024, 2025, 2026].map(y => (
-                                            <option key={y} value={y}>{y}</option>
-                                        ))}
-                                    </select>
+                                        Período Personalizado (De/Até)
+                                    </button>
                                 </div>
                             </div>
+
+                            {reportPeriodType === 'month' ? (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Mês</label>
+                                        <select
+                                            value={reportMonth}
+                                            onChange={(e) => setReportMonth(parseInt(e.target.value))}
+                                            className="ooh-input py-2.5 text-sm font-medium capitalize"
+                                        >
+                                            {Array.from({ length: 12 }, (_, i) => (
+                                                <option key={i + 1} value={i + 1}>
+                                                    {new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2000, i))}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Ano</label>
+                                        <select
+                                            value={reportYear}
+                                            onChange={(e) => setReportYear(parseInt(e.target.value))}
+                                            className="ooh-input py-2.5 text-sm font-mono-code font-medium"
+                                        >
+                                            {[2024, 2025, 2026].map(y => (
+                                                <option key={y} value={y}>{y}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <div className="grid grid-cols-2 gap-3 mb-2">
+                                        <div>
+                                            <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Data Inicial</label>
+                                            <input
+                                                type="date"
+                                                value={customReportStartDate}
+                                                onChange={(e) => setCustomReportStartDate(e.target.value)}
+                                                className="ooh-input py-2 text-sm font-mono-code font-medium"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Data Final</label>
+                                            <input
+                                                type="date"
+                                                value={customReportEndDate}
+                                                onChange={(e) => setCustomReportEndDate(e.target.value)}
+                                                className="ooh-input py-2 text-sm font-mono-code font-medium"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const d = new Date();
+                                                d.setDate(17);
+                                                setCustomReportStartDate(d.toISOString().split('T')[0]);
+                                                setCustomReportEndDate(new Date().toISOString().split('T')[0]);
+                                            }}
+                                            className="text-[11px] font-semibold text-[#FF4F00] hover:underline"
+                                        >
+                                            ⚡ Selecionar: Desde o dia 17 até hoje
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Resumo rápido do período por turno */}
                             <div className="grid grid-cols-3 gap-2.5 bg-[#F8F9FA] p-3 rounded-xl border border-[#E4E7EC]">
@@ -1350,6 +1518,131 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ currentUser }) => 
                                 ) : (
                                     <>
                                         <Plus size={18} /> Cadastrar Colaborador
+                                    </>
+                                )}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {editingEmployee && (
+                <div className="fixed inset-0 bg-[#141518]/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="ooh-card shadow-2xl p-7 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
+                        <button
+                            onClick={() => setEditingEmployee(null)}
+                            className="absolute top-5 right-5 p-2 text-[#8F96A3] hover:text-[#141518] hover:bg-[#F4F5F7] rounded-xl"
+                        >
+                            <AlertCircle size={18} className="rotate-45" />
+                        </button>
+
+                        <h3 className="text-xl font-bold font-display text-[#141518] mb-1.5">Editar Colaborador</h3>
+                        <p className="text-[#5E636E] text-sm mb-6">Atualize os dados cadastrais, turno, líder ou status do colaborador.</p>
+
+                        <form onSubmit={handleSaveEditEmployee} className="space-y-4">
+                            <div>
+                                <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">
+                                    Nome Completo <span className="text-[#DC2626]">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    className="ooh-input py-2.5 text-sm"
+                                    value={editEmployeeForm.name}
+                                    onChange={e => setEditEmployeeForm({ ...editEmployeeForm, name: e.target.value })}
+                                    placeholder="Nome completo do colaborador"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">E-mail</label>
+                                <input
+                                    type="email"
+                                    required
+                                    className="ooh-input py-2.5 text-sm"
+                                    value={editEmployeeForm.email}
+                                    onChange={e => setEditEmployeeForm({ ...editEmployeeForm, email: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Matrícula / ID</label>
+                                    <input
+                                        type="text"
+                                        className="ooh-input py-2.5 text-sm font-mono-code"
+                                        value={editEmployeeForm.code}
+                                        onChange={e => setEditEmployeeForm({ ...editEmployeeForm, code: e.target.value })}
+                                        placeholder="Ex: 10492"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Turno</label>
+                                    <select
+                                        className="ooh-input py-2.5 text-sm"
+                                        value={editEmployeeForm.shift}
+                                        onChange={e => setEditEmployeeForm({ ...editEmployeeForm, shift: e.target.value })}
+                                    >
+                                        <option value="">Selecione...</option>
+                                        <option value="DIA">DIA</option>
+                                        <option value="NOITE">NOITE</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Cargo</label>
+                                    <select
+                                        className="ooh-input py-2.5 text-sm"
+                                        value={editEmployeeForm.role}
+                                        onChange={e => setEditEmployeeForm({ ...editEmployeeForm, role: e.target.value })}
+                                    >
+                                        <option value="TECNICO">Técnico</option>
+                                        <option value="LIDER">Líder</option>
+                                        <option value="CHEFE">Chefe</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Status</label>
+                                    <select
+                                        className="ooh-input py-2.5 text-sm"
+                                        value={editEmployeeForm.originalStatus}
+                                        onChange={e => setEditEmployeeForm({ ...editEmployeeForm, originalStatus: e.target.value })}
+                                    >
+                                        <option value="ativo">ativo</option>
+                                        <option value="ativo - adm">ativo - adm</option>
+                                        <option value="afastado">afastado</option>
+                                        <option value="férias">férias</option>
+                                        <option value="inativo">inativo</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-semibold text-[#5E636E] block mb-1.5">Líder Responsável</label>
+                                <input
+                                    type="text"
+                                    className="ooh-input py-2.5 text-sm"
+                                    value={editEmployeeForm.leaderName}
+                                    onChange={e => setEditEmployeeForm({ ...editEmployeeForm, leaderName: e.target.value })}
+                                    placeholder="Nome do líder"
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={savingEdit || !editEmployeeForm.name.trim()}
+                                className="w-full bg-[#FF4F00] hover:bg-[#E04400] text-white font-semibold py-3 rounded-xl shadow-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm mt-2"
+                            >
+                                {savingEdit ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        Salvando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <CheckCircle2 size={18} /> Salvar Alterações
                                     </>
                                 )}
                             </button>
